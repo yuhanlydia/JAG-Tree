@@ -235,6 +235,16 @@ class RuntimeTests(unittest.TestCase):
 
 
 class MetricTests(unittest.TestCase):
+    def test_cosine_similarity_stays_inside_its_mathematical_range(self) -> None:
+        scale = 0.22335958229496505
+        cosine = cosine_similarity(
+            [-scale, scale],
+            [-2.0 * scale, 2.0 * scale],
+        )
+
+        self.assertGreaterEqual(cosine, -1.0)
+        self.assertLessEqual(cosine, 1.0)
+
     def test_common_metrics_and_paired_bootstrap_are_deterministic(self) -> None:
         probabilities = np.array([[1.0, 0.0], [0.2, 0.8]])
         labels = np.array([0, 1])

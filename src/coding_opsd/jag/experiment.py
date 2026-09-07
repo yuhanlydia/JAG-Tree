@@ -399,13 +399,18 @@ def _environment_hash(mdp: FiniteMDP) -> str:
     return sha256(canonical.encode("utf-8")).hexdigest()
 
 
+def _categorical_entropy(probabilities: np.ndarray) -> float:
+    positive_probabilities = probabilities[probabilities > 0.0]
+    return float(-np.sum(positive_probabilities * np.log(positive_probabilities)))
+
+
 def _priority_features(mdp: FiniteMDP, prefix: tuple[int, ...]) -> np.ndarray:
     probabilities = mdp.action_probabilities(prefix)
     return np.array(
         [
             1.0,
             len(prefix) / mdp.horizon,
-            -np.sum(probabilities * np.log(probabilities)),
+            _categorical_entropy(probabilities),
             sum(prefix) / (mdp.horizon * max(1, mdp.actions - 1)),
             float(np.max(probabilities)),
         ],
@@ -681,7 +686,7 @@ def _node_priority(
         return max(0.0, learned.predict(mdp, prefix))
     if arm == "entropy_tree":
         probabilities = mdp.action_probabilities(prefix)
-        return float(-np.sum(probabilities * np.log(probabilities)))
+        return _categorical_entropy(probabilities)
     moments = mdp.conditional_moments(
         prefix,
         baseline=baseline,

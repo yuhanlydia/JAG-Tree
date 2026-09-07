@@ -58,7 +58,9 @@ def cosine_similarity(left: np.ndarray | Iterable[float], right: np.ndarray | It
     if first.shape != second.shape:
         raise ValueError("vectors must have the same shape")
     denominator = np.linalg.norm(first) * np.linalg.norm(second)
-    return 0.0 if denominator == 0 else float(np.dot(first, second) / denominator)
+    if denominator == 0:
+        return 0.0
+    return float(np.clip(np.dot(first, second) / denominator, -1.0, 1.0))
 
 
 def effective_sample_size(weights: np.ndarray | Iterable[float]) -> float:

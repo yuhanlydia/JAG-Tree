@@ -36,6 +36,8 @@ from coding_opsd.jag import (
 from coding_opsd.jag.allocator import FrontierItem, greedy_frontier_plan
 from coding_opsd.jag.experiment import (
     RidgePriority,
+    _node_priority,
+    _priority_features,
     _sample_budget_tree,
     build_calibration_record,
     fit_calibration_record,
@@ -96,6 +98,14 @@ class FiniteMDPTests(unittest.TestCase):
                 - mdp.with_parameters(minus).expected_reward()
             ) / (2 * epsilon)
         np.testing.assert_allclose(target.gradient, numerical, atol=1e-6)
+
+    def test_covariance_reversal_masked_distribution_has_finite_priority_features(self) -> None:
+        mdp = make_phase0_mdp(7, 4, "covariance_reversal", seed=101)
+
+        self.assertTrue(np.all(np.isfinite(_priority_features(mdp, ()))))
+        self.assertTrue(np.all(np.isfinite(_priority_features(mdp, (0, 1)))))
+        self.assertTrue(np.isfinite(_node_priority(mdp, (), "entropy_tree")))
+        self.assertTrue(np.isfinite(_node_priority(mdp, (0, 1), "entropy_tree")))
 
     def test_formal_horizon_exact_oracle_finishes_within_smoke_budget(self) -> None:
         mdp = FiniteMDP(8, 4, np.zeros(4), np.zeros((4, 10)), "root_only", reward_seed=4)
