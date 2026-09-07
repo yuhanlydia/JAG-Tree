@@ -15,7 +15,7 @@ belief:
   split_merge_v1: false
   outcome_alphabet: [PASS, WRONG, EXCEPTION, TIMEOUT]
   realistic_claim: calibrated_posterior_predictive_not_semantic_latent_posterior
-  synthetic_state: [task_hypothesis, bug_class_per_candidate, edit_site_per_candidate]
+  synthetic_state: [task_hypothesis, candidate_source_hypothesis_per_candidate, bug_class_per_candidate, edit_site_per_candidate]
   synthetic_full_support_decoder_floor: 1.0e-8
 
 interface:
@@ -48,6 +48,8 @@ phase0:
   input_universe: 64
   task_hypotheses: 64
   candidates: 4
+  candidate_source_contamination: 0.80
+  candidate_source_scope: same_operator_family
   bug_classes: 8
   task_prior: uniform_canonical_hypotheses
   bug_prior: pinned_in_manifest

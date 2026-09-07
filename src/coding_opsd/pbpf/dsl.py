@@ -204,6 +204,7 @@ class Episode:
     candidate_programs: tuple[Program, ...]
     inputs: tuple[int, ...] = tuple(range(64))
     order_seed: int = 0
+    candidate_source_contamination: float = 0.0
     test_order: tuple[int, ...] = field(init=False)
     outcome_matrix: np.ndarray = field(init=False, repr=False)
 
@@ -218,17 +219,37 @@ class Episode:
             raise ValueError("inputs must be non-empty identifiers in 0..63")
         if not _is_integral(self.order_seed):
             raise ValueError("order seed must be an integer, never a boolean or float")
+        contamination = float(self.candidate_source_contamination)
+        if not np.isfinite(contamination) or not 0.0 <= contamination <= 1.0:
+            raise ValueError("candidate source contamination must be finite and in [0, 1]")
         order = deterministic_test_order(self.episode_id, inputs, self.order_seed)
         matrix = np.asarray([[outcome_for(CANONICAL_PROGRAMS[self.true_h], candidate, value) for value in order] for candidate in candidates], dtype=int)
         matrix.setflags(write=False)
         object.__setattr__(self, "candidate_programs", candidates)
         object.__setattr__(self, "inputs", inputs)
+        object.__setattr__(self, "candidate_source_contamination", contamination)
         object.__setattr__(self, "test_order", order)
         object.__setattr__(self, "outcome_matrix", matrix)
 
     @classmethod
-    def from_candidates(cls, episode_id: str, true_h: int, candidates: Iterable[Program], *, inputs: Iterable[int] = range(64), order_seed: int = 0) -> "Episode":
-        return cls(episode_id, true_h, tuple(candidates), tuple(inputs), order_seed)
+    def from_candidates(
+        cls,
+        episode_id: str,
+        true_h: int,
+        candidates: Iterable[Program],
+        *,
+        inputs: Iterable[int] = range(64),
+        order_seed: int = 0,
+        candidate_source_contamination: float = 0.0,
+    ) -> "Episode":
+        return cls(
+            episode_id,
+            true_h,
+            tuple(candidates),
+            tuple(inputs),
+            order_seed,
+            candidate_source_contamination,
+        )
 
     def prefix_view(self, t: int, outcomes: np.ndarray | None = None) -> PrefixView:
         if not _is_integral(t) or not 0 <= int(t) <= len(self.test_order):

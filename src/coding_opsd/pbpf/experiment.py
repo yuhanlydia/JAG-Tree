@@ -16,15 +16,30 @@ from .posterior import exact_map, exact_posterior, predictive, randomized_hpd
 _REGISTERED_FORMAL_TEST_EPISODES = 5_000
 
 
-def _episode(seed: int, index: int, candidates: int, order_seed: int) -> Episode:
+def _episode(
+    seed: int,
+    index: int,
+    candidates: int,
+    order_seed: int,
+    candidate_source_contamination: float = 0.0,
+) -> Episode:
     rng = named_rng(seed, f"pbpf_episode:{index}")
     h = int(rng.integers(64))
-    source = canonical_programs()[h]
+    programs_by_h = canonical_programs()
     programs = []
     for _ in range(candidates):
+        source_h = h
+        if candidate_source_contamination > 0.0 and rng.random() < candidate_source_contamination:
+            source_h = (h // 8) * 8 + int(rng.integers(8))
         bug = Bug(int(rng.choice(8, p=BUG_PRIOR)))
-        programs.append(mutate(source, bug, int(rng.choice(bug.sites))))
-    return Episode.from_candidates(f"phase0-{index}", h, programs, order_seed=order_seed)
+        programs.append(mutate(programs_by_h[source_h], bug, int(rng.choice(bug.sites))))
+    return Episode.from_candidates(
+        f"phase0-{index}",
+        h,
+        programs,
+        order_seed=order_seed,
+        candidate_source_contamination=candidate_source_contamination,
+    )
 
 
 def _scores(probabilities: np.ndarray, targets: np.ndarray) -> tuple[float, float]:
@@ -140,6 +155,7 @@ def run_pbpf_phase0(config: Mapping[str, Any], seed: int) -> dict[str, Any]:
     horizons = tuple(phase.get("forecast_horizons", (1, 8, "all_remaining")))
     sweep = tuple(int(value) for value in phase.get("particle_sweep", config.get("belief", {}).get("particle_sweep", (1, 4, 8, 16, 32))))
     order_seed = int(phase.get("test_order_seed", config.get("test_protocol", {}).get("order_seed", 61030)))
+    candidate_source_contamination = float(phase.get("candidate_source_contamination", 0.0))
     requested_arms = tuple(phase.get("arms", ("exact_bayes", "pbpf", "map")))
     supported_arms = {"exact_bayes", "pbpf", "map", "prior"}
     rejected_arms = [str(arm) for arm in requested_arms if arm not in supported_arms]
@@ -148,7 +164,13 @@ def run_pbpf_phase0(config: Mapping[str, Any], seed: int) -> dict[str, Any]:
     bootstrap_resamples = 0 if profile == "smoke" else int(dict(config.get("statistics", {})).get("bootstrap_resamples", 10_000))
     groups: dict[tuple[int, int | str], dict[str, Any]] = {}
     for index in range(count):
-        episode = _episode(seed, index, candidates, order_seed)
+        episode = _episode(
+            seed,
+            index,
+            candidates,
+            order_seed,
+            candidate_source_contamination,
+        )
         for prefix_size in prefixes:
             if prefix_size >= len(episode.test_order):
                 continue

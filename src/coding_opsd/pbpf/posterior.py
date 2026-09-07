@@ -2,29 +2,90 @@
 
 from __future__ import annotations
 
+from functools import lru_cache
 from itertools import product
 from typing import Iterable
 
 import numpy as np
 
-from .dsl import BUG_PRIOR, CANONICAL_PROGRAMS, Bug, Episode, Outcome, PrefixView, inverse_mutations
+from .dsl import BUG_PRIOR, CANONICAL_PROGRAMS, Bug, Episode, Outcome, PrefixView, mutate
 
 
 class ImpossibleEvidenceError(ValueError):
     """Raised when no finite latent state can produce observed evidence."""
 
 
+@lru_cache(maxsize=1)
+def _mutation_index() -> dict[object, dict[int, tuple[tuple[Bug, int, float], ...]]]:
+    """Index the small finite kernel once instead of reinverting every table."""
+
+    mutable: dict[object, dict[int, list[tuple[Bug, int, float]]]] = {}
+    for h_id, source in enumerate(CANONICAL_PROGRAMS):
+        for bug in Bug:
+            for site in bug.sites:
+                candidate = mutate(source, bug, site)
+                mutable.setdefault(candidate, {}).setdefault(h_id, []).append(
+                    (bug, site, float(BUG_PRIOR[int(bug)] / len(bug.sites)))
+                )
+    return {
+        candidate: {
+            h_id: tuple(explanations)
+            for h_id, explanations in by_h.items()
+        }
+        for candidate, by_h in mutable.items()
+    }
+
+
+@lru_cache(maxsize=None)
 def compatible_explanations(h_id: int, candidate) -> tuple[tuple[Bug, int, float], ...]:
     """Return compatible bug/site explanations and their prior probabilities."""
 
-    pairs = inverse_mutations(CANONICAL_PROGRAMS[int(h_id)], candidate)
-    return tuple((bug, site, float(BUG_PRIOR[int(bug)] / len(bug.sites))) for bug, site in pairs)
+    return _mutation_index().get(candidate, {}).get(int(h_id), ())
 
 
-def candidate_likelihood(h_id: int, candidate) -> float:
-    """p(candidate | H), marginalizing every compatible finite edit site."""
+@lru_cache(maxsize=None)
+def candidate_explanations(
+    h_id: int,
+    candidate,
+    candidate_source_contamination: float = 0.0,
+) -> tuple[tuple[int, Bug, int, float], ...]:
+    """Marginalize a same-family semantic source and every bug/edit site."""
 
-    return float(sum(weight for _, _, weight in compatible_explanations(h_id, candidate)))
+    contamination = float(candidate_source_contamination)
+    if not np.isfinite(contamination) or not 0.0 <= contamination <= 1.0:
+        raise ValueError("candidate source contamination must be finite and in [0, 1]")
+    h_id = int(h_id)
+    family_start = (h_id // 8) * 8
+    explanations: list[tuple[int, Bug, int, float]] = []
+    for source_h in range(family_start, family_start + 8):
+        source_mass = contamination / 8.0
+        if source_h == h_id:
+            source_mass += 1.0 - contamination
+        if source_mass == 0.0:
+            continue
+        explanations.extend(
+            (source_h, bug, site, source_mass * weight)
+            for bug, site, weight in compatible_explanations(source_h, candidate)
+        )
+    return tuple(explanations)
+
+
+@lru_cache(maxsize=None)
+def candidate_likelihood(
+    h_id: int,
+    candidate,
+    candidate_source_contamination: float = 0.0,
+) -> float:
+    """p(candidate | H), marginalizing source ambiguity, bug, and edit site."""
+
+    return float(
+        sum(
+            weight
+            for _, _, _, weight in candidate_explanations(
+                h_id, candidate, candidate_source_contamination
+            )
+        )
+    )
 
 
 def validate_prefix(episode: Episode, prefix: PrefixView) -> None:
@@ -63,7 +124,7 @@ def exact_posterior(episode: Episode, prefix: PrefixView | int) -> np.ndarray:
     validate_prefix(episode, prefix)
     probabilities = np.zeros(len(CANONICAL_PROGRAMS), dtype=float)
     for h_id in range(len(CANONICAL_PROGRAMS)):
-        candidate_mass = float(np.prod([candidate_likelihood(h_id, candidate) for candidate in episode.candidate_programs]))
+        candidate_mass = float(np.prod([candidate_likelihood(h_id, candidate, episode.candidate_source_contamination) for candidate in episode.candidate_programs]))
         probabilities[h_id] = candidate_mass if candidate_mass and _evidence_possible(episode, prefix, h_id) else 0.0
     return _normalize(probabilities)
 
@@ -74,7 +135,7 @@ def sequential_update(episode: Episode, prefix: PrefixView | int) -> np.ndarray:
     if isinstance(prefix, int):
         prefix = episode.prefix_view(prefix)
     validate_prefix(episode, prefix)
-    probability = np.asarray([np.prod([candidate_likelihood(h, candidate) for candidate in episode.candidate_programs]) for h in range(64)], dtype=float)
+    probability = np.asarray([np.prod([candidate_likelihood(h, candidate, episode.candidate_source_contamination) for candidate in episode.candidate_programs]) for h in range(64)], dtype=float)
     probability = _normalize(probability)
     for position in range(prefix.observed_outcomes.shape[1]):
         keep = np.asarray([
@@ -97,12 +158,12 @@ def brute_force_h_marginal(episode: Episode, prefix: PrefixView | int) -> np.nda
     validate_prefix(episode, prefix)
     masses = np.zeros(64, dtype=float)
     for h_id in range(64):
-        explanation_sets = [compatible_explanations(h_id, candidate) for candidate in episode.candidate_programs]
+        explanation_sets = [candidate_explanations(h_id, candidate, episode.candidate_source_contamination) for candidate in episode.candidate_programs]
         if not explanation_sets or any(not explanations for explanations in explanation_sets):
             continue
         if not _evidence_possible(episode, prefix, h_id):
             continue
-        masses[h_id] = sum(float(np.prod([explanation[2] for explanation in state])) for state in product(*explanation_sets))
+        masses[h_id] = sum(float(np.prod([explanation[3] for explanation in state])) for state in product(*explanation_sets))
     return _normalize(masses)
 
 

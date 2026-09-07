@@ -10,7 +10,7 @@ import numpy as np
 from ..metrics import effective_sample_size
 from ..runtime import named_rng
 from .dsl import Episode, Outcome
-from .posterior import candidate_likelihood, compatible_explanations, predictive
+from .posterior import candidate_explanations, candidate_likelihood, predictive
 
 
 class ParticleCollapseError(RuntimeError):
@@ -47,6 +47,7 @@ class ParticleState:
     h: int
     bugs: tuple[int, ...]
     sites: tuple[int, ...]
+    source_hs: tuple[int, ...] = ()
 
 
 @dataclass
@@ -65,16 +66,18 @@ class ParticleFilter:
         if particles < 1:
             raise ValueError("particles must be positive")
         rng = named_rng(seed, f"pbpf_particles:{episode.episode_id}")
-        compatible = [h for h in range(64) if all(candidate_likelihood(h, candidate) > 0 for candidate in episode.candidate_programs)]
+        contamination = episode.candidate_source_contamination
+        compatible = [h for h in range(64) if all(candidate_likelihood(h, candidate, contamination) > 0 for candidate in episode.candidate_programs)]
         if not compatible:
             raise ValueError("candidate tables are outside the finite mutation model")
-        choices = rng.choice(compatible, size=particles, replace=True)
+        locations = (rng.random() + np.arange(particles)) / particles
+        choices = np.asarray(compatible)[np.minimum((locations * len(compatible)).astype(int), len(compatible) - 1)]
         states = [cls._draw_state(episode, int(h), rng) for h in choices]
         # Uniform proposal over every H compatible with the fully observed
         # candidate tables.  Candidate likelihood is then importance weighted.
         proposal = 1.0 / len(compatible)
         log_weights = np.asarray([
-            sum(np.log(candidate_likelihood(state.h, candidate)) for candidate in episode.candidate_programs) - np.log(64.0) - np.log(proposal)
+            sum(np.log(candidate_likelihood(state.h, candidate, contamination)) for candidate in episode.candidate_programs) - np.log(64.0) - np.log(proposal)
             for state in states
         ], dtype=float)
         filter_ = cls(episode, states, log_weights, rng)
@@ -85,14 +88,18 @@ class ParticleFilter:
     def _draw_state(episode: Episode, h: int, rng: np.random.Generator) -> ParticleState:
         bugs: list[int] = []
         sites: list[int] = []
+        source_hs: list[int] = []
         for candidate in episode.candidate_programs:
-            explanations = compatible_explanations(h, candidate)
-            probabilities = np.asarray([item[2] for item in explanations], dtype=float)
+            explanations = candidate_explanations(
+                h, candidate, episode.candidate_source_contamination
+            )
+            probabilities = np.asarray([item[3] for item in explanations], dtype=float)
             probabilities /= probabilities.sum()
-            bug, site, _ = explanations[int(rng.choice(len(explanations), p=probabilities))]
+            source_h, bug, site, _ = explanations[int(rng.choice(len(explanations), p=probabilities))]
+            source_hs.append(int(source_h))
             bugs.append(int(bug))
             sites.append(int(site))
-        return ParticleState(int(h), tuple(bugs), tuple(sites))
+        return ParticleState(int(h), tuple(bugs), tuple(sites), tuple(source_hs))
 
     @property
     def weights(self) -> np.ndarray:
@@ -118,15 +125,26 @@ class ParticleFilter:
     def _target_log_mass(self, h: int) -> float:
         if not self._consistent(h):
             return -np.inf
-        likelihoods = [candidate_likelihood(h, candidate) for candidate in self.episode.candidate_programs]
+        likelihoods = [candidate_likelihood(h, candidate, self.episode.candidate_source_contamination) for candidate in self.episode.candidate_programs]
         return -np.log(64.0) + sum(np.log(likelihood) for likelihood in likelihoods) if all(likelihoods) else -np.inf
+
+    def _full_target_support_is_represented(self) -> bool:
+        """Keep exact finite support when the current particles already cover it."""
+
+        represented = {
+            state.h
+            for state, log_weight in zip(self.states, self.log_weights)
+            if np.isfinite(log_weight)
+        }
+        target = {h for h in range(64) if np.isfinite(self._target_log_mass(h))}
+        return target.issubset(represented)
 
     def _resample_and_rejuvenate(self) -> tuple[float, float]:
         ancestors = systematic_resample(self.weights, rng=self.rng)
         self.states = [self.states[int(index)] for index in ancestors]
         self.log_weights = np.full(len(self.states), -np.log(len(self.states)))
         self.resampling_count += 1
-        proposal_h = [h for h in range(64) if all(candidate_likelihood(h, candidate) > 0 for candidate in self.episode.candidate_programs)]
+        proposal_h = [h for h in range(64) if all(candidate_likelihood(h, candidate, self.episode.candidate_source_contamination) > 0 for candidate in self.episode.candidate_programs)]
         for index, state in enumerate(self.states):
             proposed_h = int(self.rng.choice(proposal_h))
             current_log = self._target_log_mass(state.h)
@@ -138,7 +156,9 @@ class ParticleFilter:
                 state = self._draw_state(self.episode, state.h, self.rng)
             self.states[index] = state
         unique_ancestor_ratio = len(set(int(index) for index in ancestors)) / len(ancestors)
-        unique_state_ratio = len({(state.h, state.bugs, state.sites) for state in self.states}) / len(self.states)
+        unique_state_ratio = len(
+            {(state.h, state.source_hs, state.bugs, state.sites) for state in self.states}
+        ) / len(self.states)
         return float(unique_ancestor_ratio), float(unique_state_ratio)
 
     def observe(self, position: int, outcomes: np.ndarray | Iterable[int]) -> None:
@@ -168,7 +188,10 @@ class ParticleFilter:
             self._normalize_log_weights()
         pre_resampling_ess = self.ess
         self.ess_history.append(pre_resampling_ess)
-        if pre_resampling_ess < len(self.states) / 2:
+        if (
+            pre_resampling_ess < len(self.states) / 2
+            and not self._full_target_support_is_represented()
+        ):
             ancestor_ratio, unique_state_ratio = self._resample_and_rejuvenate()
             self.diagnostic_history.append(ParticleDiagnostic(position, pre_resampling_ess, True, ancestor_ratio, unique_state_ratio))
         else:

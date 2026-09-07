@@ -569,6 +569,12 @@ class CliTests(unittest.TestCase):
                     lambda value: value["oracle_noise_model"]["medium_noise"].update(flip_icc=1.0),
                 ),
                 ("pbpf", lambda value: value["phase0"].update(prefixes=[64])),
+                (
+                    "pbpf",
+                    lambda value: value["phase0"].update(
+                        candidate_source_contamination=1.1
+                    ),
+                ),
             ]
             for index, (alias, mutate) in enumerate(mutations):
                 with self.subTest(alias=alias, index=index):

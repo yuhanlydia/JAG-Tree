@@ -401,6 +401,18 @@ def validate_resolved_config(
             raise ConfigError("phase0.arms must contain non-empty strings")
         if "test_order_seed" in phase0:
             _integer(phase0["test_order_seed"], "phase0.test_order_seed")
+        contamination = _number(
+            phase0.get("candidate_source_contamination", 0.0),
+            "phase0.candidate_source_contamination",
+            upper=1.0,
+        )
+        if contamination < 0.0:
+            raise ConfigError("phase0.candidate_source_contamination must be >= 0.0")
+        scope = phase0.get("candidate_source_scope", "same_operator_family")
+        if scope != "same_operator_family":
+            raise ConfigError(
+                "phase0.candidate_source_scope must be 'same_operator_family'"
+            )
     else:
         tasks = _integer(phase0.get("tasks_min"), "phase0.tasks_min", minimum=1)
         if (

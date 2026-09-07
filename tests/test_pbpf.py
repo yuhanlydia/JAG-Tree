@@ -27,6 +27,25 @@ class PBPFPhaseZeroTests(unittest.TestCase):
         with self.assertRaises(TypeError):
             BUG_PRIOR[0] = .0
 
+    def test_candidate_likelihood_marginalizes_same_family_source_ambiguity(self) -> None:
+        from coding_opsd.pbpf.dsl import Bug, canonical_programs, mutate
+        from coding_opsd.pbpf.posterior import candidate_likelihood
+
+        programs = canonical_programs()
+        candidate = mutate(programs[0], Bug.CORRECT, 0)
+        direct = candidate_likelihood(0, candidate)
+        family_average = np.mean(
+            [candidate_likelihood(source_h, candidate) for source_h in range(8)]
+        )
+        contaminated = candidate_likelihood(
+            0, candidate, candidate_source_contamination=.8
+        )
+        self.assertAlmostEqual(contaminated, .2 * direct + .8 * family_average)
+        self.assertGreater(
+            candidate_likelihood(7, candidate, candidate_source_contamination=.8),
+            0.0,
+        )
+
     def test_test_order_is_seeded_independently(self) -> None:
         from coding_opsd.pbpf.dsl import deterministic_test_order
 
@@ -176,6 +195,21 @@ class PBPFPhaseZeroTests(unittest.TestCase):
         raw = np.asarray([candidate_likelihood(state.h, episode.candidate_programs[0]) / 64.0 / (1.0 / len(compatible)) for state in particle_filter.states])
         np.testing.assert_allclose(particle_filter.weights, raw / raw.sum())
 
+    def test_stratified_particle_initialization_covers_small_candidate_support(self) -> None:
+        from coding_opsd.pbpf.dsl import Bug, Episode, canonical_programs, mutate
+        from coding_opsd.pbpf.particles import ParticleFilter
+
+        programs = canonical_programs()
+        episode = Episode.from_candidates(
+            "stratified",
+            0,
+            (mutate(programs[0], Bug.CORRECT, 0),),
+            order_seed=5,
+            candidate_source_contamination=.8,
+        )
+        particle_filter = ParticleFilter.initialize(episode, particles=16, seed=3)
+        self.assertEqual({state.h for state in particle_filter.states}, set(range(8)))
+
     def test_particle_mh_rejuvenation_redraws_compatible_explanations(self) -> None:
         from coding_opsd.pbpf.dsl import Bug, Episode, canonical_programs, mutate
         from coding_opsd.pbpf.particles import ParticleFilter
@@ -288,6 +322,24 @@ class PBPFPhaseZeroTests(unittest.TestCase):
         else:
             self.fail("fixture did not sample a contradictory particle")
 
+    def test_full_finite_support_is_not_destroyed_by_resampling(self) -> None:
+        from coding_opsd.pbpf.experiment import _episode
+        from coding_opsd.pbpf.particles import ParticleFilter
+        from coding_opsd.pbpf.posterior import exact_posterior
+
+        episode = _episode(303, 66, 4, 61030, .8)
+        particle_filter = ParticleFilter.initialize(
+            episode, particles=16, seed=303 + 66 * 1009 + 4
+        )
+        for position in range(4):
+            particle_filter.observe(position, episode.outcome_matrix[:, position])
+
+        np.testing.assert_allclose(
+            particle_filter.h_marginal(),
+            exact_posterior(episode, episode.prefix_view(4)),
+            atol=1e-12,
+        )
+
     def test_particles_reject_out_of_order_manifest_observation(self) -> None:
         from coding_opsd.pbpf.dsl import Bug, Episode, canonical_programs, mutate
         from coding_opsd.pbpf.particles import ParticleFilter
@@ -303,6 +355,32 @@ class PBPFPhaseZeroTests(unittest.TestCase):
 
         config = {"phase0": {"episodes": {"test": 3}, "candidates": 2, "prefixes": [0, 1], "particle_sweep": [1, 4]}}
         self.assertEqual(run_pbpf_phase0(config, 99), run_pbpf_phase0(config, 99))
+
+    def test_source_ambiguity_exposes_registered_prefix_four_mixture_effect(self) -> None:
+        from coding_opsd.pbpf.experiment import _episode, _scores
+        from coding_opsd.pbpf.posterior import exact_map, exact_posterior, predictive
+
+        exact_vs_map = []
+        exact_vs_prior = []
+        for index in range(64):
+            episode = _episode(101, index, 4, 61030, .8)
+            posterior = exact_posterior(episode, episode.prefix_view(4))
+            positions = tuple(range(4, 64))
+            targets = episode.outcome_matrix[:, positions]
+            exact_nll, _ = _scores(predictive(posterior, episode, positions), targets)
+            map_probability = np.zeros(64)
+            map_probability[exact_map(posterior)] = 1.0
+            map_nll, _ = _scores(
+                predictive(map_probability, episode, positions), targets
+            )
+            prior_nll, _ = _scores(
+                predictive(np.full(64, 1 / 64), episode, positions), targets
+            )
+            exact_vs_map.append(map_nll - exact_nll)
+            exact_vs_prior.append(prior_nll - exact_nll)
+
+        self.assertGreater(float(np.mean(exact_vs_map)), .02)
+        self.assertGreater(float(np.mean(exact_vs_prior)), .05)
 
     def test_runner_reports_prior_gate_inputs_and_rejected_arms(self) -> None:
         from coding_opsd.pbpf.experiment import run_pbpf_phase0

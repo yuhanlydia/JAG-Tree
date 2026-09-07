@@ -16,23 +16,23 @@ PBPF must be evaluated under a fixed test order. If it chooses tests, its effect
 
 ## 2. Probabilistic model
 
-For specification/context \(s\), candidate programs \(A_{1:G}\), latent task hypothesis \(H\), candidate-specific bug classes \(C_{1:G}\), mutation sites \(M_{1:G}\), tests \(x_{1:T}\), and execution outcomes \(E_{g,t}\), the finite synthetic model is
+For specification/context \(s\), candidate programs \(A_{1:G}\), latent task hypothesis \(H\), candidate source hypotheses \(J_{1:G}\), candidate-specific bug classes \(C_{1:G}\), mutation sites \(M_{1:G}\), tests \(x_{1:T}\), and execution outcomes \(E_{g,t}\), the finite synthetic model is
 
 \[
-p(H,C,M,A,E\mid s,x)=p(H\mid s)
-\prod_{g=1}^{G}p(C_g\mid H)p(M_g\mid H,C_g)
-p(A_g\mid H,C_g,M_g)
+p(H,J,C,M,A,E\mid s,x)=p(H\mid s)
+\prod_{g=1}^{G}p(J_g\mid H)p(C_g\mid J_g)p(M_g\mid J_g,C_g)
+p(A_g\mid J_g,C_g,M_g)
 \prod_{g,t}p(E_{g,t}\mid H,A_g,x_t).
 \]
 
-Phase 0 fixes \(p(H\mid s)\) to uniform over the 64 canonical hypotheses, fixes the categorical bug prior in the data manifest, takes \(M_g\) uniformly over valid edit sites, and makes \(p(A_g\mid H,C_g,M_g)\) the deterministic mutation kernel. The execution likelihood compares \(A_g(x_t)\) with the output implied by \(H(x_t)\); after the full program \(A_g\) is observed, \(C_g\) is not redundantly inserted into that likelihood. Multiple valid edit sites are marginalized.
+Phase 0 fixes \(p(H\mid s)\) to uniform over the 64 canonical hypotheses. To prevent a fully observed deterministic mutant from disclosing \(H\) before any test executes, each candidate source \(J_g\) equals \(H\) with probability `0.20`; otherwise it is sampled uniformly from the eight hypotheses in the same affine-operator family. This `0.80` source-contamination rate is part of the checked-in manifest. The model fixes the categorical bug prior, takes \(M_g\) uniformly over valid edit sites, and makes \(p(A_g\mid J_g,C_g,M_g)\) the deterministic mutation kernel. The execution likelihood still compares \(A_g(x_t)\) with \(H(x_t)\). After the full program \(A_g\) is observed, \(J_g,C_g,M_g\) are marginalized rather than inserted redundantly into that likelihood.
 
 The product over candidates is the exact synthetic data generator. It is only a modeling approximation for correlated samples from a real LLM and is tested against an exchangeable set encoder in Phase 1.
 
 The online posterior after a fixed prefix is
 
 \[
-q_t(H,C_{1:G},M_{1:G})=q(H,C_{1:G},M_{1:G}\mid s,A_{1:G},x_{1:T},E_{:,1:t}).
+q_t(H,J_{1:G},C_{1:G},M_{1:G})=q(H,J_{1:G},C_{1:G},M_{1:G}\mid s,A_{1:G},x_{1:T},E_{:,1:t}).
 \]
 
 The protocol is input-known/output-hidden: canonical test inputs \(x_{1:T}\) are visible from the start, while assertions, expected values and future execution outcomes are not. Only the next manifest test may be executed at each round.
@@ -45,11 +45,11 @@ The outcome alphabet is `PASS`, `WRONG`, `EXCEPTION`, and `TIMEOUT`; when permit
 p(E_{:,t+1:T}\mid z_t^{(m)},A,x_{t+1:T}).
 \]
 
-In Phase 0 each particle is the discrete static state \(z^{(m)}=(H,C_{1:G},M_{1:G})\). With initial proposal \(r_0\),
+In Phase 0 each particle is the discrete static state \(z^{(m)}=(H,J_{1:G},C_{1:G},M_{1:G})\). With initial proposal \(r_0\),
 
 \[
 w_0^{(m)}\propto
-\frac{p(H^{(m)}\mid s)\prod_g p(C_g^{(m)},M_g^{(m)},A_g\mid H^{(m)})}
+\frac{p(H^{(m)}\mid s)\prod_g p(J_g^{(m)}\mid H^{(m)})p(C_g^{(m)},M_g^{(m)},A_g\mid J_g^{(m)})}
 {r_0(z^{(m)}\mid s,A)},
 \]
 
@@ -60,9 +60,9 @@ w_t^{(m)}\propto w_{t-1}^{(m)}
 \prod_g p(E_{g,t}\mid H^{(m)},A_g,x_t).
 \]
 
-After resampling, one manifest-pinned Gibbs/Metropolis rejuvenation step leaves the exact \(q_t\) invariant. A full-support categorical decoder \(q_\phi(H,C,M\mid z_{1:P},w)\), with an explicit probability floor, supports finite synthetic posterior cross-entropy/KL even when an empirical particle set misses a state.
+After resampling, one manifest-pinned Gibbs/Metropolis rejuvenation step leaves the exact \(q_t\) invariant. A full-support categorical decoder \(q_\phi(H,J,C,M\mid z_{1:P},w)\), with an explicit probability floor, supports finite synthetic posterior cross-entropy/KL even when an empirical particle set misses a state.
 
-On realistic tasks, \(H,C,M\) are not identifiable labels. The model is therefore called an **amortized particle predictive belief**, not a calibrated semantic posterior. Each 256-dimensional neural particle follows proposal \(r_\phi(z_t\mid z_{t-1},o_t)\), transition prior \(p_\phi(z_t\mid z_{t-1})\), and likelihood \(p_\phi(E_t\mid z_t,A,x_t)\), with log-weight increment
+On realistic tasks, \(H,J,C,M\) are not identifiable labels. The model is therefore called an **amortized particle predictive belief**, not a calibrated semantic posterior. Each 256-dimensional neural particle follows proposal \(r_\phi(z_t\mid z_{t-1},o_t)\), transition prior \(p_\phi(z_t\mid z_{t-1})\), and likelihood \(p_\phi(E_t\mid z_t,A,x_t)\), with log-weight increment
 
 \[
 \Delta\log w_t=\log p_\phi(E_t\mid z_t,A,x_t)
@@ -75,6 +75,8 @@ The base implementation uses \(P=8\), log-space weights, an evidence encoder, an
 \[
 \operatorname{ESS}=1/\sum_m(w_t^{(m)})^2 < P/2.
 \]
+
+In the finite Phase-0 reference, resampling is suppressed when the positive-weight particles already represent every exact finite-support \(H\) state. Dropping a represented low-mass state in that case can create avoidable particle extinction at the next deterministic observation. This support check uses enumeration only in the synthetic reference and is not an available Phase-1 operation.
 
 Split/merge moves are permanently excluded from version 1. Any future split/merge study receives a new preregistration rather than being triggered adaptively from these results.
 
@@ -148,7 +150,7 @@ Construct a finite typed scalar/list DSL based on [CrossBeam](https://github.com
 - \(G=4\) candidate programs;
 - eight bug classes: correct, operator swap, constant \(\pm1\), comparison boundary, argument/order, missing branch/filter, index \(\pm1\), and aggregator/type/exception.
 
-Ignoring edit-site multiplicity, the nominal \((H,C)\) space has \(64\times8^4=262{,}144\) states. Enumerate \((H,C,M)\) exactly for audit-sized instances, marginalizing valid sites, and use factorized messages only after matching brute force.
+Ignoring edit-site multiplicity, the nominal \((H,J,C)\) space has \(64\times(8\times8)^4\) states. The exact implementation enumerates the 64 values of \(H\), marginalizes each candidate's \((J,C,M)\) explanations independently, and matches explicit brute force on audit-sized fixtures before using that factorization.
 
 Create 50,000/5,000/5,000 train/dev/test episodes. Split by normalized AST plus operator multiset, and remove any cross-split pair with the same 64-input truth table.
 
