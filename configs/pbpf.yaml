@@ -1,0 +1,159 @@
+schema_version: "0.1"
+direction: predictive_belief_particle_filter
+base_config: shared.yaml
+status: preregistration_manifest_non_executable_until_deep_merge_loader_exists
+
+belief:
+  particles_primary: 8
+  particle_sweep: [1, 4, 8, 16, 32]
+  latent_dimension: 256
+  log_space_weights: true
+  resampling: systematic
+  resample_ess_fraction: 0.5
+  resampling_ancestor_gradient: stop
+  resampling_diagnostics: [pre_resampling_ess, unique_ancestor_ratio, post_rejuvenation_unique_state_ratio]
+  split_merge_v1: false
+  outcome_alphabet: [PASS, WRONG, EXCEPTION, TIMEOUT]
+  realistic_claim: calibrated_posterior_predictive_not_semantic_latent_posterior
+  synthetic_state: [task_hypothesis, bug_class_per_candidate, edit_site_per_candidate]
+  synthetic_full_support_decoder_floor: 1.0e-8
+
+interface:
+  primary: low_rank_kv_delta
+  particle_aggregation: mixture_of_predictives
+  posterior_mean_baseline_aggregation: weighted_latent_then_one_forward
+  deterministic_ensemble_forward_count: 8
+  visible_tokens_matched: true
+  registered_layers_pilot: last_4
+  upper_bounds: [soft_prompt, posterior_text, oracle_hypothesis_synthetic]
+  controls: [zero_delta, random_delta, shuffled_evidence]
+
+test_protocol:
+  visibility: all_canonical_inputs_known_outputs_hidden
+  order_hash_algorithm: sha256
+  immutable: true
+  selection_allowed: false
+  reorder_allowed: false
+  skip_allowed: false
+  repeat_allowed: false
+  synthesis_allowed: false
+  adaptive_stop_allowed: false
+  execute_all_candidates: true
+  seeds_independent: [training_seed, candidate_bank_seed, test_order_seed]
+
+phase0:
+  environment: crossbeam_finite_dsl
+  ast_depth_max: 4
+  input_universe: 64
+  task_hypotheses: 64
+  candidates: 4
+  bug_classes: 8
+  task_prior: uniform_canonical_hypotheses
+  bug_prior: pinned_in_manifest
+  edit_site_prior: uniform_valid_sites
+  mutation_kernel: deterministic
+  observation_noise_primary: 0.0
+  episodes: {train: 50000, dev: 5000, test: 5000}
+  split_unit: base_ast_operator_family
+  split_before_candidate_generation: true
+  cross_split_truth_table_dedup: true
+  test_role: mechanism_test
+  test_order_seed: 61030
+  prefixes: [0, 1, 2, 4, 8, 16]
+  forecast_horizons: [1, 8, all_remaining]
+  exact_posterior: enumeration
+  arms: [exact_bayes, pbpf, map, deterministic_state, bag_of_evidence, shuffled_evidence, random_latent]
+  gate:
+    exact_vs_prior_future_nll_nats_per_test: 0.05
+    exact_mixture_vs_exact_map_nll_nats_per_candidate_test_min: 0.02
+    exact_mixture_vs_exact_map_paired_ci_lower_min: 0.0
+    p16_gap_to_exact_nll_one_sided_ci_upper_max: 0.02
+    exact_map_to_exact_mixture_gap_closed_min: 0.80
+    credible_set_nominal: 0.90
+    credible_set_construction: randomized_hpd_exact_mass
+    credible_coverage_test_ci_must_contain_nominal: true
+    credible_set_target: task_hypothesis_marginal
+    matched_state_paired_hierarchical_ci_lower_min: 0.0
+
+phase1:
+  model: Qwen/Qwen2.5-Coder-7B-Instruct
+  policy: frozen
+  data_roles:
+    train: [CrossBeam_train, CodeContests_train]
+    dev: [CrossBeam_dev, CodeContests_dev, MBPP_plus_smoke]
+    mechanism_test: [CrossBeam_test, CodeARC_heldout]
+    locked_test: []
+  split_unit: base_task_program_family
+  split_before_candidate_generation: true
+  candidates: 8
+  candidate_composition: {frozen_model_samples: 6, registered_bug_template_mutants: 2}
+  candidate_bank_seed: 44119
+  candidate_bank_shared_across_arms: true
+  candidate_temperature: 0.8
+  candidate_top_p: 0.95
+  trainable_parameters_max: 20000000
+  test_order: stable_hash_manifest
+  order_seed: 61031
+  order_seed_independent_of_model_seed: true
+  cutpoint_sampling: uniform
+  suffix_teacher_forcing: false
+  gate:
+    primary_metric: macro_task_fixed_prefix_future_nll
+    primary_comparator: best_matched_compute_deterministic_state_selected_on_dev
+    future_nll_relative_reduction: 0.05
+    paired_hierarchical_ci_lower_min: 0.0
+    brier_may_worsen: false
+    control_attenuation_formula: "1 - (nll_base - nll_control) / (nll_base - nll_pbpf)"
+    each_required_control_attenuation_min: 0.80
+    required_controls: [shuffled_evidence, matched_norm_rsp]
+  calibration_diagnostics: [classwise_ece, adaptive_ece, calibration_slope]
+
+phase2:
+  data_roles:
+    train: [TACO_train, CodeContests_train]
+    dev: [source_disjoint_train_carveout]
+    public_secondary: [EvalPlus]
+    sealed_test: [evaluator_held_temporal_or_unpublished_coding]
+  candidates: 8
+  repair_rounds_max: 4
+  screening_updates: 200
+  formal_updates_min: 600
+  formal_updates_max: 1000
+  test_selection_allowed: false
+  test_generation_allowed: false
+  test_reorder_allowed: false
+  test_skip_allowed: false
+  test_repeat_allowed: false
+  fixed_interaction_manifest_sha_required: true
+  interaction_order_seed: 61032
+  interaction_order_seed_independent_of_model_seed: true
+  expected_outputs_visible: false
+  evidence_primary: categorical_status_only
+  objectives:
+    belief:
+      loss: fixed_prefix_future_nll
+      optimizer_targets: [belief_modules, kv_projector]
+      stop_gradient_to: [actor_lora]
+    actor:
+      reward: "remaining_passrate - 0.02 * min(changed_tokens / 256, 1) - 0.10 * timeout"
+      optimizer_targets: [actor_lora]
+      stop_gradient_to: [belief_modules, kv_projector]
+  four_rounds_mandatory_all_arms: true
+  candidate_identity: [lineage_id, version, code_hash]
+  patched_slot_bug_state: reinitialized_from_diff_transition
+  ancestor_outcome_counts_as_patched_execution: false
+  returned_program_selector: posterior_remaining_success_then_generation_logprob
+  trainable: [belief_modules, kv_projector, actor_lora]
+  baselines: [transcript, aggregate_passrate, deterministic_latent, posterior_mean, soft_prompt, kv_particles]
+  gate:
+    heldout_pass_at_1_absolute_gain: 0.03
+    paired_ci_excludes_zero: true
+    prediction_advantage_must_persist: true
+    secondary_multiplicity_correction: holm
+
+kill_conditions:
+  - exact_posterior_does_not_beat_prior
+  - exact_mixture_does_not_beat_exact_map
+  - particles_fail_to_approximate_exact_posterior
+  - future_prediction_gain_disappears_with_equal_visible_context
+  - repair_gain_without_retained_prediction_gain
