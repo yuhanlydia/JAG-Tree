@@ -55,6 +55,8 @@ Run the three Phase 0 experiments independently. They are cheap enough to pursue
 
 Use three seeds, but inspect failures only after all preregistered runs finish. Bugs invalidate runs; unattractive scientific results do not.
 
+The checked-in files under `configs/phase0/*_smoke.yaml` are **developer tiny smokes**: they use deliberately small counts to exercise configuration resolution, estimator invariants, artifact writing, and deterministic replay on CPU. They always report `INCOMPLETE` and cannot authorize progression in this graph. A **scientific Phase 0 run** uses the full counts, arms, seeds, and gates in the corresponding formal direction config; a smaller mechanism or infrastructure smoke used during development (including the 100-task merge artifact below) is still not a formal gate result. None of these CPU runs satisfies G0 or substitutes for the frozen-model and online-RL evidence in Phases 1 and 2.
+
 ## 4. Phase 1 frozen-model decision
 
 For every surviving direction:
@@ -114,11 +116,19 @@ Learned test content is a second factorial extension only after the fixed-pool 2
 
 ## 7. Experiment identity and branch policy
 
-Use one immutable ID:
+Use one immutable, provenance-rich ID for model-backed Phase 1/2 experiments:
 
 ```text
 {direction}-{phase}-{dataset_manifest8}-{model}-{seed}-{config_sha8}
 ```
+
+The dependency-light Phase 0 CLI uses a shorter local artifact ID because it has no dataset manifest or model:
+
+```text
+{identity}-seed{seed}-{configsha8}
+```
+
+Here `identity` comes from the resolved overlay and `configsha8` is the first eight hexadecimal characters of its canonical resolved-config digest. This short ID is only an artifact-addressing convention; model-backed work must retain the longer ID above and its dataset/model provenance.
 
 Recommended implementation branches:
 
@@ -128,7 +138,7 @@ Recommended implementation branches:
 - `research/goav-phase0`
 - later `research/<direction>-7b`
 
-Each merge requires estimator unit tests, a 100-task smoke artifact and a config diff. Results are stored separately from source code; summaries name the exact commit, container digest and manifest hash.
+Each merge requires estimator unit tests, a 100-task scientific/infrastructure smoke artifact, and a config diff. This is distinct from the tiny checked-in developer overlays and does not relax any formal gate. Results are stored separately from source code; summaries name the exact commit, container digest and manifest hash.
 
 ## 8. Minimum result tables
 

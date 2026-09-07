@@ -174,7 +174,15 @@ Prove the estimator implementation and show a setting in which the cross-covaria
 - JAG with oracle integer DP;
 - JAG with learned greedy predictor.
 
-Sibling-LOO is reported only with its exact empirical \(b\)-dependent U-statistic variance, never with the simple JAG allocator. Negative controls deliberately use current-tree outcomes to add branches and mismatched top-p sampling/full-softmax scores.
+The value-only, gradient-only, no-cross and integer-oracle arms use exact
+future conditional moments and are explicitly reported as oracle ablations;
+only the lagged learned arm is an online allocator claim. The
+`leaf_equal_naive` reference control isolates leaf weighting on a genealogy
+whose allocation never reads its sampled outcomes. Outcome-adaptive branching
+and mismatched top-p/full-softmax controls are separate future negative
+controls, not silently attributed to that arm.
+
+Sibling-LOO is reported only with its exact empirical \(b\)-dependent U-statistic variance, never with the simple JAG allocator.
 
 ### Primary metrics
 
@@ -191,6 +199,22 @@ Sibling-LOO is reported only with its exact empirical \(b\)-dependent U-statisti
 - learned JAG closes at least 70% of the oracle–uniform gap;
 - full joint covariance beats the no-cross-term version by at least 10% in the covariance-reversal family.
 - nominal 90% covariance intervals cover the exact node contribution in at least 90% of registered audit cases.
+
+The current Phase-0 reference additionally reports a held-out
+node-contribution covariance diagnostic: squared-Frobenius numerator
+\(\|\widehat\Sigma_{heldout}-\Sigma_{pred}\|_F^2\), denominator
+\(\|\Sigma_{pred}\|_F^2\), their square-root relative error, and the independent
+audit sample count. This does not retroactively replace the registered 90%
+coverage gate above; because the reference does not implement that registered
+gate and aggregates only one active seed, its formal status remains
+`INCOMPLETE`.
+
+The checked-in smoke overlay reduces the environment to \(H=7\) and budget 14
+to keep CPU runtime below 20 seconds. Seven steps are the minimum that retains
+the registered length-six covariance-reversal prefixes plus their informative
+action, and budget 14 is exactly representable by every arm under the formal
+three-branchable-depth, maximum-branching-four constraints. Formal \(H=8\) and
+budgets 64/128/256 remain unchanged above.
 
 Any unbiasedness failure stops the direction. If value-only matches full joint within 3%, remove the joint-covariance novelty claim.
 

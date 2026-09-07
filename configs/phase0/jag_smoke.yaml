@@ -1,0 +1,20 @@
+base_config: ../jag_tree.yaml
+runtime:
+  profile: smoke
+execution:
+  container_digest_required: false
+seeds: [101, 202]
+output:
+  identity: jag_phase0_smoke
+phase0:
+  horizon: 7
+  budgets: [14]
+  rollout_replications: 8
+  covariance_audit_replications: 32
+  learned_calibration_seeds: [71]
+  learned_calibration_horizon: 3
+  oracle_scope:
+    max_horizon: 3
+    max_budget: 12
+    max_frontier_nodes: 8
+    max_states: 100000

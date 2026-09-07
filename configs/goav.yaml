@@ -1,7 +1,7 @@
 schema_version: "0.2"
 direction: gradient_optimal_active_verification
 base_config: shared.yaml
-status: preregistration_manifest_non_executable_until_deep_merge_loader_exists
+status: phase0_reference_implementation_available
 
 gradient_target:
   estimator: on_policy_linear_leave_one_out
@@ -75,6 +75,7 @@ real_suite_panel:
   full_utility_visible_to_trainer: false
 
 phase0:
+  executable_overlays: [phase0/goav_smoke.yaml]
   tasks_min: 256
   tasks_max: 512
   group_size: 8

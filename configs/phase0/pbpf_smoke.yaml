@@ -1,0 +1,10 @@
+base_config: ../pbpf.yaml
+runtime:
+  profile: smoke
+execution:
+  container_digest_required: false
+seeds: [101, 202]
+output:
+  identity: pbpf_phase0_smoke
+phase0:
+  episodes: {train: 32, dev: 8, test: 4}

@@ -1,7 +1,7 @@
 schema_version: "0.1"
 direction: jag_tree
 base_config: shared.yaml
-status: preregistration_manifest_non_executable_until_deep_merge_loader_exists
+status: phase0_reference_implementation_available
 
 estimator:
   name: recursive_joint_value_gradient
@@ -28,6 +28,7 @@ allocator:
   outcome_access_before_allocation: false
 
 phase0:
+  executable_overlays: [phase0/jag_smoke.yaml]
   environment: finite_mdp
   horizon: 8
   actions: 4

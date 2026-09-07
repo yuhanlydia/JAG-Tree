@@ -1,7 +1,7 @@
 schema_version: "0.1"
 direction: predictive_belief_particle_filter
 base_config: shared.yaml
-status: preregistration_manifest_non_executable_until_deep_merge_loader_exists
+status: phase0_reference_implementation_available
 
 belief:
   particles_primary: 8
@@ -42,6 +42,7 @@ test_protocol:
   seeds_independent: [training_seed, candidate_bank_seed, test_order_seed]
 
 phase0:
+  executable_overlays: [phase0/pbpf_smoke.yaml]
   environment: crossbeam_finite_dsl
   ast_depth_max: 4
   input_universe: 64
