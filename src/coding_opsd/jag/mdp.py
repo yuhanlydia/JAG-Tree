@@ -168,7 +168,13 @@ class FiniteMDP:
             return 0.0 if actions[0] == 0 else float(self._entropy_signal[actions[1]])
         if self.horizon < _COVARIANCE_STOCHASTIC_DEPTHS or self.actions < 2:
             return float(self._covariance_signal[actions[0]])
-        return float(self._diagnostic_scale if actions[1] == 1 else 0.0)
+        if actions[1] != 1:
+            return 0.0
+        if actions[0] == 0:
+            return self._diagnostic_scale
+        if actions[0] == 1:
+            return -self._diagnostic_scale
+        return 0.0
 
     def expected_reward(self) -> float:
         return exact_target(self).expected_reward

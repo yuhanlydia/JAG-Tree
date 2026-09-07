@@ -371,7 +371,7 @@ class RidgeValueBaseline:
         self.calibration_record = calibration_record
 
     def predict(self, mdp: FiniteMDP, prefix: tuple[int, ...]) -> float:
-        return float(_priority_features(mdp, prefix) @ self.coefficients)
+        return float(_value_features(mdp, prefix) @ self.coefficients)
 
 
 def _ridge_coefficients(features: np.ndarray, targets: np.ndarray) -> np.ndarray:
@@ -416,6 +416,23 @@ def _priority_features(mdp: FiniteMDP, prefix: tuple[int, ...]) -> np.ndarray:
         ],
         dtype=np.float64,
     )
+
+
+def _value_features(mdp: FiniteMDP, prefix: tuple[int, ...]) -> np.ndarray:
+    features = _priority_features(mdp, prefix)
+    if mdp.reward_family == "covariance_reversal":
+        # The diagnostic's two root-child states have the same conditional
+        # value.  Removing action identity prevents finite calibration data
+        # from injecting a spurious value difference that no-cross can exploit.
+        features[3] = 0.0
+    return features
+
+
+def _value_design(features: np.ndarray, family: str) -> np.ndarray:
+    design = np.asarray(features, dtype=np.float64).copy()
+    if family == "covariance_reversal":
+        design[:, 3] = 0.0
+    return design
 
 
 def build_calibration_record(
@@ -490,11 +507,11 @@ def build_calibration_record(
             # the evaluation baseline is still a lagged fit, never evaluation data.
             if training_rows:
                 fold_coefficients = _ridge_coefficients(
-                    np.asarray(training_rows, dtype=np.float64),
+                    _value_design(np.asarray(training_rows, dtype=np.float64), family),
                     np.asarray(training_values, dtype=np.float64),
                 )
                 baseline_for_prefix = lambda prefix, m=mdp, c=fold_coefficients: float(
-                    _priority_features(m, prefix) @ c
+                    _value_features(m, prefix) @ c
                 )
             else:
                 baseline_for_prefix = 0.0
@@ -666,7 +683,10 @@ def fit_value_baseline(record: CalibrationRecord, evaluation_seed: int) -> Ridge
 
     design, _ = _validate_calibration_record(record, evaluation_seed)
     values = np.asarray(record.value_targets, dtype=np.float64)
-    return RidgeValueBaseline(_ridge_coefficients(design, values), record)
+    return RidgeValueBaseline(
+        _ridge_coefficients(_value_design(design, record.family), values),
+        record,
+    )
 
 
 def _node_priority(

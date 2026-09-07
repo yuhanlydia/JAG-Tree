@@ -214,10 +214,14 @@ gate and aggregates only one active seed, its formal status remains
 The covariance-reversal family uses two active softmax actions for its first
 two decisions and then enters a deterministic absorbing suffix. At the first
 child frontier, the two nodes have identical local features, reward variance,
-gradient variance and no-cross risk. Their accumulated scores are opposites,
-so the full joint risk is zero at one node and doubled at the other. Both nodes
-occur on-policy with probability one half; no diagnostic prefix is injected or
-conditioned on after sampling.
+gradient variance and no-cross risk. Their conditional reward means have equal
+magnitude and opposite signs, so the lagged action-invariant value baseline has
+a zero target. Their accumulated scores are opposites, making the full joint
+risk zero at one node and doubled at the other. Both nodes occur on-policy with
+probability one half; no diagnostic prefix is injected or conditioned on after
+sampling. The risk predictor retains action identity, while the value baseline
+omits it for this family because the baseline target is invariant under the
+paired sign transformation.
 
 The checked-in smoke overlay uses \(H=7\), budget 33 and two branchable depths.
 This budget produces three root continuations and leaves two complete-suffix

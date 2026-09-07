@@ -41,6 +41,7 @@ from coding_opsd.jag.experiment import (
     _sample_budget_tree,
     build_calibration_record,
     fit_calibration_record,
+    fit_value_baseline,
 )
 
 
@@ -409,6 +410,20 @@ class SamplingAndExperimentTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "earlier"):
             fit_calibration_record(record, evaluation_seed=3)
 
+    def test_covariance_value_baseline_is_invariant_across_equal_value_nodes(self) -> None:
+        record = build_calibration_record(
+            "covariance_reversal",
+            horizon=3,
+            actions=4,
+            seeds=(71,),
+            risk_label_baseline="lagged_cross_fitted_value",
+        )
+        baseline = fit_value_baseline(record, evaluation_seed=101)
+        mdp = make_phase0_mdp(7, 4, "covariance_reversal", seed=101)
+
+        self.assertAlmostEqual(baseline.predict(mdp, (0,)), 0.0, places=12)
+        self.assertAlmostEqual(baseline.predict(mdp, (1,)), 0.0, places=12)
+
     def test_oracle_scope_parser_rejects_coercions_and_unknown_keys(self) -> None:
         base = {
             "runtime": {"profile": "smoke"},
@@ -669,7 +684,7 @@ class DiagnosticRewardTests(unittest.TestCase):
         config = {
             "runtime": {"profile": "smoke"},
             "estimator": {
-                "primary_baseline": "zero",
+                "primary_baseline": "lagged_cross_fitted_value",
                 "max_branching": 4,
                 "branchable_depth_count": 2,
             },
@@ -681,6 +696,8 @@ class DiagnosticRewardTests(unittest.TestCase):
                 "budgets": [33],
                 "rollout_replications": 3000,
                 "covariance_audit_replications": 32,
+                "learned_calibration_seeds": [71],
+                "learned_calibration_horizon": 3,
                 "oracle_scope": {
                     "max_horizon": 7,
                     "max_budget": 33,
