@@ -291,7 +291,7 @@ def run_goav_phase0(config: Mapping[str, Any], seed: int) -> dict[str, Any]:
     targets = np.asarray([data[3] for data in task_data])
     events: list[dict[str, Any]] = []
     accumulators: dict[str, dict[str, Any]] = {
-        arm: {"estimates": [[] for _ in range(tasks)], "cosines": [], "weights": [], "costs": [], "expected": [], "analytic": [], "realized": [], "support": 0}
+        arm: {"estimates": [[] for _ in range(tasks)], "design_expectations": [], "cosines": [], "weights": [], "costs": [], "expected": [], "analytic": [], "realized": [], "support": 0}
         for arm in arms
     }
 
@@ -346,6 +346,20 @@ def run_goav_phase0(config: Mapping[str, Any], seed: int) -> dict[str, Any]:
             accumulator = accumulators[arm]
             if design is not None:
                 accumulator["realized"].append(exact_realized_design_mse(residual, influence, design))
+            if arm == "cheap_only":
+                design_expectation = influence @ mu
+            elif arm == "deterministic_topk_invalid":
+                count = max(1, int(round(budget_fraction * candidates)))
+                selected = np.argsort(-mu)[:count]
+                pseudo = mu.copy()
+                pseudo[selected] = labels[task, selected]
+                design_expectation = influence @ pseudo
+            else:
+                # HT/AIPW are exactly unbiased under the logged full-support
+                # distribution.  Use their design expectation for bias rather
+                # than treating finite evaluation draws as systematic bias.
+                design_expectation = target.copy()
+            accumulator["design_expectations"].append(design_expectation)
             arm_draws = 1 if arm in {"cheap_only", "deterministic_topk_invalid", "full_audit"} else draws
             for draw in range(arm_draws):
                 if arm == "cheap_only":
@@ -377,6 +391,9 @@ def run_goav_phase0(config: Mapping[str, Any], seed: int) -> dict[str, Any]:
     for arm in arms:
         accumulator = accumulators[arm]
         task_estimates = [np.asarray(values) for values in accumulator["estimates"]]
+        design_expectations = [
+            np.asarray([value]) for value in accumulator["design_expectations"]
+        ]
         squared_error = 0.0
         stabilized_target = 0.0
         for estimates, target in zip(task_estimates, targets, strict=True):
@@ -390,7 +407,7 @@ def run_goav_phase0(config: Mapping[str, Any], seed: int) -> dict[str, Any]:
                 "arm": arm,
                 "nMSE": float(squared_error / stabilized_target),
                 "gradient_cosine": float(np.mean(accumulator["cosines"])),
-                "standardized_bias": _standardized_design_bias(task_estimates, targets, epsilon_g),
+                "standardized_bias": _standardized_design_bias(design_expectations, targets, epsilon_g),
                 "kish_ess": float(effective_sample_size(weights)) if weights.size else 0.0,
                 "weight_p50": float(np.quantile(weights, 0.50)) if weights.size else 0.0,
                 "weight_p95": float(np.quantile(weights, 0.95)) if weights.size else 0.0,

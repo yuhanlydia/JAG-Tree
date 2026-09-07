@@ -343,6 +343,13 @@ class OracleAndExperimentTests(unittest.TestCase):
         self.assertEqual(first["epsilon_G"], changed_evaluation["epsilon_G"])
         self.assertEqual(first["epsilon_G_provenance"], changed_evaluation["epsilon_G_provenance"])
         self.assertEqual({row["arm"] for row in first["rows"]}, set(config["phase0"]["arms"]))
+        randomized = {
+            row["arm"]: row
+            for row in first["rows"]
+            if row["arm"] != "full_audit"
+        }
+        for row in randomized.values():
+            self.assertLess(row["standardized_bias"], 1e-12)
         self.assertTrue(first["events"])
         logged_hashes: set[tuple[int, str, str]] = set()
         seen_audit_for_task: set[int] = set()
