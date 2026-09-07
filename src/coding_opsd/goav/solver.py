@@ -73,15 +73,26 @@ def _scaled_marginals(weights: np.ndarray, costs: np.ndarray, budget: float, flo
     if not np.any(values > 0.0):
         values = 1.0 / costs
 
+    minimum_budget = float(floor * costs.sum())
+    marginal_floor = floor
+    if budget > minimum_budget + 1e-12:
+        # Subset-product reconstruction can lose a few ulps even when the
+        # requested marginal equals the floor exactly.  Keep a tiny numerical
+        # interior margin while bisection preserves the registered budget.
+        marginal_floor = min(
+            floor + 32.0 * float(np.spacing(floor)),
+            float(np.nextafter(1.0, 0.0)),
+        )
+
     positive = values > 0.0
-    positive_capacity = np.where(positive, 1.0 - 1e-14, floor)
+    positive_capacity = np.where(positive, 1.0 - 1e-14, marginal_floor)
     if float(np.dot(positive_capacity, costs)) < budget - 1e-12:
         result = positive_capacity.copy()
         zero = ~positive
 
         def filled(scale: float) -> np.ndarray:
             candidate = result.copy()
-            candidate[zero] = np.clip(floor + scale / costs[zero], floor, 1.0 - 1e-14)
+            candidate[zero] = np.clip(marginal_floor + scale / costs[zero], marginal_floor, 1.0 - 1e-14)
             return candidate
 
         low, high = 0.0, 1.0
@@ -99,7 +110,7 @@ def _scaled_marginals(weights: np.ndarray, costs: np.ndarray, budget: float, flo
         return result
 
     def marginals(scale: float) -> np.ndarray:
-        return np.clip(scale * values, floor, 1.0 - 1e-14)
+        return np.clip(scale * values, marginal_floor, 1.0 - 1e-14)
 
     low, high = 0.0, 1.0
     while float(np.dot(marginals(high), costs)) < budget:

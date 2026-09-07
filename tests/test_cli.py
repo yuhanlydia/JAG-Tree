@@ -568,6 +568,16 @@ class CliTests(unittest.TestCase):
                     "goav",
                     lambda value: value["oracle_noise_model"]["medium_noise"].update(flip_icc=1.0),
                 ),
+                (
+                    "goav",
+                    lambda value: value["phase0"].update(
+                        coverage_tests_per_candidate_primary=99
+                    ),
+                ),
+                (
+                    "goav",
+                    lambda value: value["phase0"].update(synthetic_score_rank=99),
+                ),
                 ("pbpf", lambda value: value["phase0"].update(prefixes=[64])),
                 (
                     "pbpf",

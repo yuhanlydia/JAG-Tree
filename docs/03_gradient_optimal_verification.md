@@ -229,6 +229,8 @@ Marginal ECE is insufficient for \(C\). Report joint log/energy score, pairwise 
 - \(K=8\) on-policy candidates;
 - 1.5B model for exhaustive plumbing, then 7B LoRA registered-block gradients;
 - 32–48 tests per task;
+- four primary cheap coverage observations per candidate, taken from the fixed pool as one correlated cluster; `1`, `2`, and `8` are registered coverage sensitivities;
+- rank-one synthetic score geometry with one task-permuted dominant candidate, embedded by the fixed 256-dimensional Rademacher sketch for the primary mechanism stratum;
 - expected trusted-audit fractions `5%`, `10%`, `20%`, `40%`, and `100%`;
 - primary point 10% with inclusion floor `0.02`; 5% sensitivity uses floor `0.005`;
 - 200 independent subset draws per task/group/design;

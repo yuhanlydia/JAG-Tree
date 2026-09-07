@@ -81,6 +81,9 @@ phase0:
   group_size: 8
   tests_per_task_min: 32
   tests_per_task_max: 48
+  coverage_tests_per_candidate_primary: 4
+  synthetic_score_rank: 1
+  synthetic_score_geometry: permuted_dominant
   audit_budget_fractions: [0.05, 0.10, 0.20, 0.40, 1.0]
   primary_budget_fraction: 0.10
   subset_draws_per_group_design: 200

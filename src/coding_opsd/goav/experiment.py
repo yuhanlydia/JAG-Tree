@@ -51,6 +51,34 @@ def _array_hash(values: np.ndarray) -> str:
     return sha256(np.asarray(values, dtype="<f8").tobytes(order="C")).hexdigest()
 
 
+def _synthetic_scores(
+    seed: int,
+    tasks: int,
+    candidates: int,
+    sketch_dimension: int,
+    score_rank: int,
+    sketch_seed: int,
+) -> np.ndarray:
+    """Create a low-rank score family in a fixed Rademacher sketch space."""
+
+    if min(tasks, candidates, sketch_dimension, score_rank) < 1:
+        raise ValueError("synthetic score dimensions must be positive")
+    if score_rank > sketch_dimension:
+        raise ValueError("synthetic score rank cannot exceed sketch dimension")
+    coefficient_rng = named_rng(seed, "goav_phase0_score_permutations")
+    base = np.full(candidates, -1.0)
+    base[0] = float(candidates - 1)
+    coefficients = np.empty((tasks, candidates, score_rank), dtype=np.float64)
+    for task in range(tasks):
+        for component in range(score_rank):
+            coefficients[task, :, component] = coefficient_rng.permutation(base)
+    projection_rng = named_rng(sketch_seed, "goav_gradient_projection")
+    projection = projection_rng.choice(
+        (-1.0, 1.0), size=(score_rank, sketch_dimension)
+    ) / np.sqrt(float(sketch_dimension))
+    return np.einsum("tkr,rp->tkp", coefficients, projection)
+
+
 def _freeze_epsilon_g(
     phase0: Mapping[str, Any],
     candidates: int,
@@ -59,6 +87,9 @@ def _freeze_epsilon_g(
     false_negative: float,
     false_positive: float,
     rho: float,
+    sketch_dimension: int,
+    score_rank: int | None,
+    sketch_seed: int,
 ) -> tuple[float, dict[str, Any]]:
     """Freeze epsilon from an explicit scalar or an evaluation-independent synthetic dev panel."""
 
@@ -82,9 +113,21 @@ def _freeze_epsilon_g(
         rho,
         dev_seed,
     )
-    dev_scores = named_rng(dev_seed, "goav_epsilon_dev_scores").normal(
-        size=(dev_tasks, candidates, max(2, candidates // 2))
-    )
+    if score_rank is None:
+        dev_scores = named_rng(dev_seed, "goav_epsilon_dev_scores").normal(
+            size=(dev_tasks, candidates, sketch_dimension)
+        )
+        score_rng_label = "goav_epsilon_dev_scores"
+    else:
+        dev_scores = _synthetic_scores(
+            dev_seed,
+            dev_tasks,
+            candidates,
+            sketch_dimension,
+            score_rank,
+            sketch_seed,
+        )
+        score_rng_label = "goav_phase0_score_permutations"
     dev_targets = np.asarray(
         [loo_influence(dev_scores[index]) @ dev_labels[index].astype(np.float64) for index in range(dev_tasks)]
     )
@@ -96,7 +139,7 @@ def _freeze_epsilon_g(
         "candidates": candidates,
         "tests": tests,
         "panel_rng_label": "goav_synthetic_oracle",
-        "score_rng_label": "goav_epsilon_dev_scores",
+        "score_rng_label": score_rng_label,
         "input_hash": _array_hash(dev_targets),
         "formula": "max(0.01*median_squared_gradient_norm,float64_epsilon)",
     }
@@ -153,12 +196,14 @@ def run_goav_phase0(config: Mapping[str, Any], seed: int) -> dict[str, Any]:
 
     phase0 = _nested(config, "phase0")
     acquisition = _nested(config, "acquisition")
+    gradient_target = _nested(config, "gradient_target")
     noise = _nested(_nested(config, "oracle_noise_model"), "medium_noise")
     runtime = _nested(config, "runtime")
     solver_config = _nested(acquisition, "solver")
     tasks = int(phase0.get("tasks_min", 4))
     candidates = int(phase0.get("group_size", 8))
     tests = int(phase0.get("tests_per_task_min", 4))
+    coverage_tests = int(phase0.get("coverage_tests_per_candidate_primary", tests))
     draws = int(phase0.get("subset_draws_per_group_design", 8))
     budget_fraction = float(phase0.get("primary_budget_fraction", acquisition.get("primary_budget_fraction", 0.1)))
     floor = float(acquisition.get("primary_inclusion_floor", 0.02))
@@ -184,13 +229,23 @@ def run_goav_phase0(config: Mapping[str, Any], seed: int) -> dict[str, Any]:
             ],
         )
     )
-    if min(tasks, candidates, tests, draws) < 1:
+    if min(tasks, candidates, tests, coverage_tests, draws) < 1:
         raise ValueError("tasks, candidates, tests, and draws must be positive")
+    if coverage_tests > tests:
+        raise ValueError("primary coverage tests cannot exceed the fixed test pool")
     cluster_size = int(noise.get("cluster_size", 2))
     cluster_ids = np.arange(tests) // cluster_size
     false_negative = float(noise.get("false_negative", 0.1))
     false_positive = float(noise.get("false_positive", 0.2))
     rho = float(noise.get("flip_icc", 0.6))
+    sketch_dimension = int(
+        gradient_target.get("sketch_dimension", max(2, candidates // 2))
+    )
+    if sketch_dimension < 1:
+        raise ValueError("gradient sketch dimension must be positive")
+    score_rank_raw = phase0.get("synthetic_score_rank")
+    score_rank = None if score_rank_raw is None else int(score_rank_raw)
+    sketch_seed = int(gradient_target.get("sketch_seed", 9517))
     epsilon_g, epsilon_provenance = _freeze_epsilon_g(
         phase0,
         candidates,
@@ -199,17 +254,36 @@ def run_goav_phase0(config: Mapping[str, Any], seed: int) -> dict[str, Any]:
         false_negative,
         false_positive,
         rho,
+        sketch_dimension,
+        score_rank,
+        sketch_seed,
     )
     labels, evidences = simulate_synthetic_oracle(
         tasks, candidates, cluster_ids, false_negative, false_positive, rho, seed
     )
-    score_rng = named_rng(seed, "goav_phase0_scores")
-    scores = score_rng.normal(size=(tasks, candidates, max(2, candidates // 2)))
+    primary_evidences = evidences[:, :, :coverage_tests]
+    primary_cluster_ids = cluster_ids[:coverage_tests]
+    if score_rank is None:
+        score_rng = named_rng(seed, "goav_phase0_scores")
+        scores = score_rng.normal(size=(tasks, candidates, sketch_dimension))
+    else:
+        scores = _synthetic_scores(
+            seed,
+            tasks,
+            candidates,
+            sketch_dimension,
+            score_rank,
+            sketch_seed,
+        )
     costs = np.ones(candidates, dtype=np.float64)
     task_data: list[tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]] = []
     for task in range(tasks):
         _, mu, covariance = oracle_joint_posterior(
-            evidences[task], false_negative, false_positive, rho, cluster_ids
+            primary_evidences[task],
+            false_negative,
+            false_positive,
+            rho,
+            primary_cluster_ids,
         )
         influence = loo_influence(scores[task])
         target = influence @ labels[task].astype(np.float64)
@@ -233,7 +307,7 @@ def run_goav_phase0(config: Mapping[str, Any], seed: int) -> dict[str, Any]:
                 covariance,
                 influence,
                 mu,
-                evidences[task],
+                primary_evidences[task],
                 costs,
                 budget_fraction,
                 floor,

@@ -14,7 +14,7 @@ from coding_opsd.goav.estimator import (
     exact_realized_design_mse,
     loo_influence,
 )
-from coding_opsd.goav.experiment import _epsilon_g, _standardized_design_bias, run_goav_phase0
+from coding_opsd.goav.experiment import _epsilon_g, _standardized_design_bias, _synthetic_scores, run_goav_phase0
 from coding_opsd.goav.noise import oracle_joint_posterior, shared_error_moments, simulate_synthetic_oracle
 from coding_opsd.goav.solver import (
     bayes_voi_scores,
@@ -208,6 +208,24 @@ class DesignTests(unittest.TestCase):
         self.assertTrue(np.all(design.probabilities > 0.0))
         self.assertGreaterEqual(design.pi.min(), 0.05 - 1e-12)
 
+    def test_neyman_serialized_marginals_never_round_below_floor(self) -> None:
+        importance = np.array(
+            [
+                1.2720385804619193e-07,
+                6.942489960665621e-07,
+                4.9126103595996306e-08,
+                4.997615601657286e-08,
+                1.9205621600458867e-07,
+                1.1061605076750985e-08,
+                3.1023119042338155e-08,
+                6.946482473615158e-05,
+            ]
+        )
+        design = poisson_neyman_design(
+            np.diag(importance), np.eye(8), np.ones(8), budget=.8, floor=.02
+        )
+        self.assertGreaterEqual(float(design.pi.min()), .02)
+
     def test_score_design_uses_nonnegative_scores_and_meets_budget(self) -> None:
         design = score_design([0.0, 0.5, 2.0, 1.0], budget=1.2, floor=0.05)
         self.assertAlmostEqual(design.expected_cost, 1.2, places=10)
@@ -234,6 +252,23 @@ class DesignTests(unittest.TestCase):
 
 
 class OracleAndExperimentTests(unittest.TestCase):
+    def test_synthetic_gradient_geometry_honors_sketch_dimension_and_rank(self) -> None:
+        scores = _synthetic_scores(17, 3, 8, 31, 1, 9517)
+        self.assertEqual(scores.shape, (3, 8, 31))
+        for task_scores in scores:
+            self.assertLessEqual(np.linalg.matrix_rank(task_scores), 1)
+            np.testing.assert_allclose(
+                np.sort(np.linalg.norm(task_scores, axis=1)),
+                [1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 7.0],
+            )
+        self.assertGreater(
+            len({int(np.argmax(np.linalg.norm(task, axis=1))) for task in scores}),
+            1,
+        )
+        np.testing.assert_array_equal(
+            scores, _synthetic_scores(17, 3, 8, 31, 1, 9517)
+        )
+
     def test_bias_is_normalized_per_task_before_aggregation_with_frozen_epsilon(self) -> None:
         targets = np.array([[1.0, 0.0], [3.0, 0.0]])
         epsilon_g = _epsilon_g(targets)
@@ -340,6 +375,73 @@ class OracleAndExperimentTests(unittest.TestCase):
             for arm in config["phase0"]["arms"]:
                 expected = [0] if arm == "full_audit" else [0, 1]
                 self.assertEqual(draws_by_task_arm[(task, arm)], expected)
+
+    def test_phase0_runner_uses_registered_gradient_sketch_dimension(self) -> None:
+        base = {
+            "runtime": {"profile": "smoke"},
+            "phase0": {
+                "tasks_min": 3,
+                "group_size": 4,
+                "tests_per_task_min": 4,
+                "subset_draws_per_group_design": 3,
+                "primary_budget_fraction": .25,
+                "epsilon_G": .01,
+                "arms": ["uniform_subset_aipw"],
+            },
+            "acquisition": {"primary_inclusion_floor": .04},
+            "oracle_noise_model": {
+                "medium_noise": {
+                    "false_negative": .1,
+                    "false_positive": .2,
+                    "flip_icc": .6,
+                    "cluster_size": 2,
+                }
+            },
+        }
+        low = {**base, "gradient_target": {"sketch_dimension": 2}}
+        high = {**base, "gradient_target": {"sketch_dimension": 9}}
+        self.assertNotEqual(
+            run_goav_phase0(low, seed=13)["rows"],
+            run_goav_phase0(high, seed=13)["rows"],
+        )
+
+    def test_phase0_runner_limits_primary_cheap_coverage_to_registered_count(self) -> None:
+        config = {
+            "runtime": {"profile": "smoke"},
+            "gradient_target": {"sketch_dimension": 8, "sketch_seed": 9517},
+            "phase0": {
+                "tasks_min": 3,
+                "group_size": 4,
+                "tests_per_task_min": 8,
+                "coverage_tests_per_candidate_primary": 4,
+                "synthetic_score_rank": 1,
+                "subset_draws_per_group_design": 3,
+                "primary_budget_fraction": .25,
+                "epsilon_G": .01,
+                "arms": ["uniform_subset_aipw"],
+            },
+            "acquisition": {"primary_inclusion_floor": .04},
+            "oracle_noise_model": {
+                "medium_noise": {
+                    "false_negative": .1,
+                    "false_positive": .2,
+                    "flip_icc": .6,
+                    "cluster_size": 4,
+                }
+            },
+        }
+        limited = run_goav_phase0(config, seed=21)
+        full = run_goav_phase0(
+            {
+                **config,
+                "phase0": {
+                    **config["phase0"],
+                    "coverage_tests_per_candidate_primary": 8,
+                },
+            },
+            seed=21,
+        )
+        self.assertNotEqual(limited["rows"], full["rows"])
 
     def test_deterministic_topk_is_flagged_invalid_and_reports_its_cost(self) -> None:
         config = {

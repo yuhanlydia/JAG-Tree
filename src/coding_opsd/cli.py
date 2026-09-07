@@ -423,11 +423,44 @@ def validate_resolved_config(
         candidates = _integer(phase0.get("group_size"), "phase0.group_size", minimum=1)
         if candidates > 20:
             raise ConfigError("phase0.group_size must be <= 20 for exact subset enumeration")
-        _integer(
+        tests = _integer(
             phase0.get("tests_per_task_min"),
             "phase0.tests_per_task_min",
             minimum=1,
         )
+        coverage_tests = _integer(
+            phase0.get("coverage_tests_per_candidate_primary", tests),
+            "phase0.coverage_tests_per_candidate_primary",
+            minimum=1,
+        )
+        if coverage_tests > tests:
+            raise ConfigError(
+                "phase0.coverage_tests_per_candidate_primary cannot exceed phase0.tests_per_task_min"
+            )
+        if "synthetic_score_rank" in phase0:
+            score_rank = _integer(
+                phase0["synthetic_score_rank"],
+                "phase0.synthetic_score_rank",
+                minimum=1,
+            )
+            sketch_dimension = _integer(
+                _mapping(config.get("gradient_target", {}), "gradient_target").get(
+                    "sketch_dimension", max(2, candidates // 2)
+                ),
+                "gradient_target.sketch_dimension",
+                minimum=1,
+            )
+            if score_rank > sketch_dimension:
+                raise ConfigError(
+                    "phase0.synthetic_score_rank cannot exceed gradient_target.sketch_dimension"
+                )
+        if (
+            phase0.get("synthetic_score_geometry", "permuted_dominant")
+            != "permuted_dominant"
+        ):
+            raise ConfigError(
+                "phase0.synthetic_score_geometry must be 'permuted_dominant'"
+            )
         _integer(
             phase0.get("subset_draws_per_group_design"),
             "phase0.subset_draws_per_group_design",

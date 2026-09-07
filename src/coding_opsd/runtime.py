@@ -1602,13 +1602,31 @@ def _validate_goav_contract(
         expected_dev_seed = _require_int(
             phase0.get("epsilon_g_dev_seed", 730_241), "GOAV epsilon dev seed"
         )
+        gradient_target = _require_mapping(
+            config.get("gradient_target", {}), "GOAV gradient_target"
+        )
+        sketch_dimension = _require_int(
+            gradient_target.get("sketch_dimension", max(2, candidates // 2)),
+            "GOAV sketch_dimension",
+        )
+        score_rank_value = phase0.get("synthetic_score_rank")
+        score_rank = (
+            None
+            if score_rank_value is None
+            else _require_int(score_rank_value, "GOAV synthetic_score_rank")
+        )
+        score_rng_label = (
+            "goav_epsilon_dev_scores"
+            if score_rank is None
+            else "goav_phase0_score_permutations"
+        )
         expected_values = {
             "seed": expected_dev_seed,
             "tasks": expected_dev_tasks,
             "candidates": candidates,
             "tests": tests,
             "panel_rng_label": "goav_synthetic_oracle",
-            "score_rng_label": "goav_epsilon_dev_scores",
+            "score_rng_label": score_rng_label,
             "formula": "max(0.01*median_squared_gradient_norm,float64_epsilon)",
         }
         for field, expected in expected_values.items():
@@ -1634,6 +1652,7 @@ def _validate_goav_contract(
         rho = float(_require_number(noise_panel.get("flip_icc", 0.6), "GOAV flip_icc"))
         cluster_ids = np.arange(tests) // cluster_size
         from .goav.estimator import loo_influence
+        from .goav.experiment import _synthetic_scores
         from .goav.noise import simulate_synthetic_oracle
 
         dev_labels, _ = simulate_synthetic_oracle(
@@ -1645,9 +1664,21 @@ def _validate_goav_contract(
             rho,
             expected_dev_seed,
         )
-        dev_scores = named_rng(expected_dev_seed, "goav_epsilon_dev_scores").normal(
-            size=(expected_dev_tasks, candidates, max(2, candidates // 2))
-        )
+        if score_rank is None:
+            dev_scores = named_rng(expected_dev_seed, "goav_epsilon_dev_scores").normal(
+                size=(expected_dev_tasks, candidates, sketch_dimension)
+            )
+        else:
+            dev_scores = _synthetic_scores(
+                expected_dev_seed,
+                expected_dev_tasks,
+                candidates,
+                sketch_dimension,
+                score_rank,
+                _require_int(
+                    gradient_target.get("sketch_seed", 9517), "GOAV sketch_seed"
+                ),
+            )
         dev_targets = np.asarray(
             [
                 loo_influence(dev_scores[index]) @ dev_labels[index].astype(np.float64)
