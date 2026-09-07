@@ -71,6 +71,32 @@ class FiniteMDPTests(unittest.TestCase):
             numerical[index] = (self.mdp.with_parameters(plus).expected_reward() - self.mdp.with_parameters(minus).expected_reward()) / (2 * epsilon)
         np.testing.assert_allclose(target.gradient, numerical, atol=1e-6)
 
+    def test_covariance_reversal_exposes_two_softmax_steps_then_absorbing_padding(self) -> None:
+        mdp = make_phase0_mdp(7, 4, "covariance_reversal", seed=101)
+
+        np.testing.assert_allclose(mdp.action_probabilities(()), [0.5, 0.5, 0.0, 0.0])
+        np.testing.assert_allclose(mdp.action_probabilities((0,)), [0.5, 0.5, 0.0, 0.0])
+        np.testing.assert_allclose(mdp.action_probabilities((0, 1)), [1.0, 0.0, 0.0, 0.0])
+        for action in range(mdp.actions):
+            np.testing.assert_allclose(
+                mdp.score((0, 1), action),
+                np.zeros(mdp.parameter_size),
+                atol=1e-12,
+            )
+
+        target = exact_target(mdp)
+        epsilon = 1e-6
+        numerical = np.empty_like(mdp.parameters)
+        for index in range(mdp.parameter_size):
+            plus, minus = mdp.parameters, mdp.parameters
+            plus[index] += epsilon
+            minus[index] -= epsilon
+            numerical[index] = (
+                mdp.with_parameters(plus).expected_reward()
+                - mdp.with_parameters(minus).expected_reward()
+            ) / (2 * epsilon)
+        np.testing.assert_allclose(target.gradient, numerical, atol=1e-6)
+
     def test_formal_horizon_exact_oracle_finishes_within_smoke_budget(self) -> None:
         mdp = FiniteMDP(8, 4, np.zeros(4), np.zeros((4, 10)), "root_only", reward_seed=4)
         started = time.perf_counter()
@@ -555,7 +581,7 @@ class SamplingAndExperimentTests(unittest.TestCase):
         self.assertEqual(run_jag_phase0(undeclared, seed=21)["gate"]["status"], "INVALID")
         bad_structure = {
             "runtime": {"profile": "smoke"},
-            "phase0": {"horizon": 3, "actions": 2, "reward_families": ["covariance_reversal"], "arms": ["flat_iid"], "budgets": [3], "rollout_replications": 1},
+            "phase0": {"horizon": 1, "actions": 2, "reward_families": ["covariance_reversal"], "arms": ["flat_iid"], "budgets": [1], "rollout_replications": 1},
         }
         self.assertEqual(run_jag_phase0(bad_structure, seed=21)["gate"]["status"], "INVALID")
 
@@ -619,10 +645,77 @@ class DiagnosticRewardTests(unittest.TestCase):
                 left_covariance = np.asarray(left["value_gradient_covariance"])
                 right_covariance = np.asarray(right["value_gradient_covariance"])
                 self.assertGreater(np.linalg.norm(left_covariance), 0.0)
-                np.testing.assert_allclose(left_covariance, -right_covariance, atol=1e-12)
+                np.testing.assert_allclose(left_covariance, right_covariance, atol=1e-12)
                 self.assertAlmostEqual(audit["checks"]["local_feature_difference_norm"], 0.0, places=12)
-                self.assertAlmostEqual(audit["checks"]["accumulated_score_difference_norm"], 0.0, places=12)
+                self.assertAlmostEqual(audit["checks"]["equal_no_cross_risk_abs_gap"], 0.0, places=12)
+                self.assertAlmostEqual(
+                    audit["checks"]["opposite_accumulated_score_vector_sum_norm"],
+                    0.0,
+                    places=12,
+                )
                 self.assertTrue(audit["checks"]["covariance_reversal_valid"])
+
+    def test_covariance_reversal_allocator_clears_registered_cross_term_gate(self) -> None:
+        config = {
+            "runtime": {"profile": "smoke"},
+            "estimator": {
+                "primary_baseline": "zero",
+                "max_branching": 4,
+                "branchable_depth_count": 2,
+            },
+            "phase0": {
+                "horizon": 7,
+                "actions": 4,
+                "reward_families": ["covariance_reversal"],
+                "arms": ["joint_no_cross", "jag_oracle"],
+                "budgets": [33],
+                "rollout_replications": 3000,
+                "covariance_audit_replications": 32,
+                "oracle_scope": {
+                    "max_horizon": 7,
+                    "max_budget": 33,
+                    "max_frontier_nodes": 8,
+                    "max_states": 100000,
+                },
+            },
+        }
+
+        result = run_jag_phase0(config, seed=101)
+        comparison = next(
+            item
+            for item in result["gate"]["inputs"]["registered_comparisons"]
+            if "full_joint_vs_no_cross_relative_mse_gain" in item
+        )
+        self.assertEqual(comparison["family"], "covariance_reversal")
+        self.assertGreaterEqual(
+            comparison["full_joint_vs_no_cross_relative_mse_gain"],
+            0.10,
+        )
+
+    def test_covariance_audit_targets_the_exposed_reversal_node(self) -> None:
+        config = {
+            "runtime": {"profile": "smoke"},
+            "estimator": {
+                "primary_baseline": "zero",
+                "max_branching": 4,
+                "branchable_depth_count": 2,
+            },
+            "phase0": {
+                "horizon": 7,
+                "actions": 4,
+                "reward_families": ["covariance_reversal"],
+                "arms": ["joint_no_cross"],
+                "budgets": [7],
+                "rollout_replications": 2,
+                "covariance_audit_replications": 2,
+            },
+        }
+
+        result = run_jag_phase0(config, seed=101)
+        self.assertEqual(
+            result["families"]["covariance_reversal"]["covariance_audit"]["prefix"],
+            [0],
+        )
 
 
 class ConditionalMomentTests(unittest.TestCase):

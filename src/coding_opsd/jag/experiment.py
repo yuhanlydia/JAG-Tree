@@ -1034,8 +1034,8 @@ def _parse_oracle_scope(phase0: Mapping[str, Any]) -> OracleScope:
 
 
 def _audit_prefix(mdp: FiniteMDP) -> tuple[int, ...]:
-    if mdp.reward_family == "covariance_reversal" and mdp.horizon >= 7:
-        return (0, 0, 1, 1, 0, 1)
+    if mdp.reward_family == "covariance_reversal" and mdp.horizon >= 2:
+        return (0,)
     if mdp.reward_family == "entropy_distractor" and mdp.horizon >= 2:
         return (1,)
     return tuple(0 for _ in range(max(0, mdp.horizon - 2)))

@@ -160,7 +160,9 @@ Prove the estimator implementation and show a setting in which the cross-covaria
 1. **Root-only reward:** the first action determines reward; suffixes are irrelevant. Detects prefix cancellation.
 2. **Suffix-only reward:** early history is irrelevant; a late action determines reward. Rewards suffix branching.
 3. **Entropy distractor:** an early state has high policy entropy but identical downstream values. Tests entropy misallocation.
-4. **Covariance reversal:** two nodes have equal reward variance but opposite value-gradient cross-covariance. Tests the genuinely new term.
+4. **Covariance reversal:** two nodes have equal reward variance and equal
+   no-cross risk, while their accumulated scores make the value-gradient
+   cross-term contributions equal and opposite. Tests the genuinely new term.
 
 ### Arms
 
@@ -209,12 +211,20 @@ coverage gate above; because the reference does not implement that registered
 gate and aggregates only one active seed, its formal status remains
 `INCOMPLETE`.
 
-The checked-in smoke overlay reduces the environment to \(H=7\) and budget 14
-to keep CPU runtime below 20 seconds. Seven steps are the minimum that retains
-the registered length-six covariance-reversal prefixes plus their informative
-action, and budget 14 is exactly representable by every arm under the formal
-three-branchable-depth, maximum-branching-four constraints. Formal \(H=8\) and
-budgets 64/128/256 remain unchanged above.
+The covariance-reversal family uses two active softmax actions for its first
+two decisions and then enters a deterministic absorbing suffix. At the first
+child frontier, the two nodes have identical local features, reward variance,
+gradient variance and no-cross risk. Their accumulated scores are opposites,
+so the full joint risk is zero at one node and doubled at the other. Both nodes
+occur on-policy with probability one half; no diagnostic prefix is injected or
+conditioned on after sampling.
+
+The checked-in smoke overlay uses \(H=7\), budget 33 and two branchable depths.
+This budget produces three root continuations and leaves two complete-suffix
+increments for the exposed covariance frontier, so the full and no-cross arms
+can make different allocation decisions while every generated edge remains in
+the cost ledger. Its eight replications only exercise the pipeline. Formal
+\(H=8\) and budgets 64/128/256 remain unchanged above.
 
 Any unbiasedness failure stops the direction. If value-only matches full joint within 3%, remove the joint-covariance novelty claim.
 

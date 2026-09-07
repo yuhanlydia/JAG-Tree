@@ -15,8 +15,9 @@ from .estimator import TreeNode
 
 
 _REWARD_FAMILIES = frozenset({"root_only", "suffix_only", "entropy_distractor", "covariance_reversal"})
-_COVARIANCE_LEFT_PREFIX = (0, 0, 1, 1, 0, 1)
-_COVARIANCE_RIGHT_PREFIX = (0, 1, 0, 0, 1, 1)
+_COVARIANCE_LEFT_PREFIX = (0,)
+_COVARIANCE_RIGHT_PREFIX = (1,)
+_COVARIANCE_STOCHASTIC_DEPTHS = 2
 
 
 def _policy_cache_key(policy: Any) -> tuple[Any, ...]:
@@ -89,6 +90,8 @@ class FiniteMDP:
         path = tuple(prefix)
         self._validate_prefix(path)
         features = np.zeros(self.feature_size, dtype=np.float64)
+        if self.reward_family == "covariance_reversal":
+            return features
         if path:
             features[0] = len(path) / self.horizon
             features[1 + path[-1]] = 1.0
@@ -100,6 +103,22 @@ class FiniteMDP:
         return self.theta + self.feature_weights @ self.features(prefix)
 
     def action_probabilities(self, prefix: Iterable[int]) -> np.ndarray:
+        path = tuple(prefix)
+        self._validate_prefix(path)
+        if self.reward_family == "covariance_reversal":
+            # The diagnostic isolates the cross term at the first child
+            # frontier.  Two masked softmax decisions make both reversal
+            # states on-policy; the remaining horizon is deterministic padding
+            # so every sampled edge still counts against the tree budget.
+            probabilities = np.zeros(self.actions, dtype=np.float64)
+            if len(path) >= _COVARIANCE_STOCHASTIC_DEPTHS:
+                probabilities[0] = 1.0
+                return probabilities
+            active_logits = self.logits(path)[:2]
+            shifted = active_logits - np.max(active_logits)
+            exponentials = np.exp(shifted)
+            probabilities[:2] = exponentials / np.sum(exponentials)
+            return probabilities
         logits = self.logits(prefix)
         shifted = logits - np.max(logits)
         exponentials = np.exp(shifted)
@@ -110,11 +129,19 @@ class FiniteMDP:
         return float(self.action_probabilities(prefix)[action])
 
     def score(self, prefix: Iterable[int], action: int) -> np.ndarray:
+        path = tuple(prefix)
+        self._validate_prefix(path)
         self._validate_action(action)
-        probabilities = self.action_probabilities(prefix)
+        probabilities = self.action_probabilities(path)
+        if self.reward_family == "covariance_reversal" and (
+            len(path) >= _COVARIANCE_STOCHASTIC_DEPTHS or action >= 2
+        ):
+            # Masked and absorbing actions are fixed, so their log-probability
+            # has no derivative with respect to the softmax parameters.
+            return np.zeros(self.parameter_size, dtype=np.float64)
         logit_gradient = -probabilities
         logit_gradient[action] += 1.0
-        return np.concatenate((logit_gradient, np.outer(logit_gradient, self.features(prefix)).reshape(-1)))
+        return np.concatenate((logit_gradient, np.outer(logit_gradient, self.features(path)).reshape(-1)))
 
     def path_probability(self, path: Iterable[int]) -> float:
         actions = tuple(path)
@@ -139,20 +166,9 @@ class FiniteMDP:
             # Prefix (0,) is a true distractor: no downstream action changes
             # reward.  Prefix (1,) is informative through the second action.
             return 0.0 if actions[0] == 0 else float(self._entropy_signal[actions[1]])
-        if self.horizon >= 7 and self.actions >= 2:
-            diagnostic_prefix = actions[: len(_COVARIANCE_LEFT_PREFIX)]
-            diagnostic_action = actions[len(_COVARIANCE_LEFT_PREFIX)]
-            if diagnostic_prefix == _COVARIANCE_LEFT_PREFIX:
-                return float(self._covariance_signal[diagnostic_action])
-            if diagnostic_prefix == _COVARIANCE_RIGHT_PREFIX:
-                swapped = 1 - diagnostic_action if diagnostic_action in {0, 1} else diagnostic_action
-                return float(self._covariance_signal[swapped])
-            return 0.0
-        if self.horizon < 2:
+        if self.horizon < _COVARIANCE_STOCHASTIC_DEPTHS or self.actions < 2:
             return float(self._covariance_signal[actions[0]])
-        # Tiny fixtures retain a non-degenerate fallback.  The registered H=8
-        # audit uses the exact paired-prefix construction above.
-        return float(self._covariance_signal[actions[1]])
+        return float(self._diagnostic_scale if actions[1] == 1 else 0.0)
 
     def expected_reward(self) -> float:
         return exact_target(self).expected_reward
@@ -516,8 +532,8 @@ def structural_audit(mdp: FiniteMDP, target: ExactTarget | None = None) -> dict[
         return result
 
     if mdp.reward_family == "covariance_reversal":
-        if mdp.horizon < 7:
-            result["reason"] = "registered covariance pair requires horizon>=7"
+        if mdp.horizon < _COVARIANCE_STOCHASTIC_DEPTHS:
+            result["reason"] = "registered covariance pair requires horizon>=2"
             return result
         left_prefix, right_prefix = _COVARIANCE_LEFT_PREFIX, _COVARIANCE_RIGHT_PREFIX
     else:
@@ -528,6 +544,7 @@ def structural_audit(mdp: FiniteMDP, target: ExactTarget | None = None) -> dict[
 
     def node_measure(prefix: tuple[int, ...]) -> dict[str, Any]:
         probabilities = mdp.action_probabilities(prefix)
+        positive_probabilities = probabilities[probabilities > 0.0]
         moments = mdp.conditional_moments(prefix, full_covariance=False)
         accumulated_score = _accumulated_prefix_score(mdp, prefix)
         cross_term = float(2.0 * accumulated_score @ moments.value_gradient_covariance)
@@ -535,7 +552,7 @@ def structural_audit(mdp: FiniteMDP, target: ExactTarget | None = None) -> dict[
             "prefix": list(prefix),
             "local_features": mdp.features(prefix).tolist(),
             "accumulated_score": accumulated_score.tolist(),
-            "entropy": float(-np.sum(probabilities * np.log(probabilities))),
+            "entropy": float(-np.sum(positive_probabilities * np.log(positive_probabilities))),
             "value_variance": float(moments.value_variance),
             "cross_term": cross_term,
             "joint_risk": float(max(0.0, joint_risk_for_audit(moments, accumulated_score))),
@@ -574,32 +591,41 @@ def structural_audit(mdp: FiniteMDP, target: ExactTarget | None = None) -> dict[
         cross_sum = float(abs(float(left["cross_term"]) + float(right["cross_term"])))
         left_covariance = np.asarray(left["value_gradient_covariance"], dtype=np.float64)
         right_covariance = np.asarray(right["value_gradient_covariance"], dtype=np.float64)
-        covariance_sum_norm = float(np.linalg.norm(left_covariance + right_covariance))
+        covariance_difference_norm = float(np.linalg.norm(left_covariance - right_covariance))
         covariance_nonzero = bool(np.linalg.norm(left_covariance) > tolerance)
         opposite = bool(float(left["cross_term"]) * float(right["cross_term"]) < 0.0)
+        left_score = np.asarray(left["accumulated_score"], dtype=np.float64)
+        right_score = np.asarray(right["accumulated_score"], dtype=np.float64)
+        score_sum_norm = float(np.linalg.norm(left_score + right_score))
+        score_norm_gap = float(abs(np.linalg.norm(left_score) - np.linalg.norm(right_score)))
+        left_no_cross = float(left["joint_risk"] - left["cross_term"])
+        right_no_cross = float(right["joint_risk"] - right["cross_term"])
+        no_cross_gap = float(abs(left_no_cross - right_no_cross))
         valid = bool(
             variance_gap <= tolerance
             and cross_sum <= tolerance
-            and covariance_sum_norm <= tolerance
+            and covariance_difference_norm <= tolerance
             and covariance_nonzero
             and opposite
             and np.linalg.norm(np.asarray(left["local_features"]) - np.asarray(right["local_features"])) <= tolerance
-            and np.linalg.norm(np.asarray(left["accumulated_score"]) - np.asarray(right["accumulated_score"])) <= tolerance
+            and score_sum_norm <= tolerance
+            and score_norm_gap <= tolerance
+            and no_cross_gap <= tolerance
         )
         result["nodes"] = {"left": left, "right": right}
         result["checks"] = {
             "covariance_reversal_valid": valid,
             "equal_value_variance_abs_gap": variance_gap,
             "opposite_cross_term_abs_sum": cross_sum,
-            "opposite_covariance_vector_sum_norm": covariance_sum_norm,
+            "same_covariance_vector_difference_norm": covariance_difference_norm,
             "covariance_vector_nonzero": covariance_nonzero,
             "opposite_nonzero_signs": opposite,
             "local_feature_difference_norm": float(
                 np.linalg.norm(np.asarray(left["local_features"]) - np.asarray(right["local_features"]))
             ),
-            "accumulated_score_difference_norm": float(
-                np.linalg.norm(np.asarray(left["accumulated_score"]) - np.asarray(right["accumulated_score"]))
-            ),
+            "opposite_accumulated_score_vector_sum_norm": score_sum_norm,
+            "equal_accumulated_score_norm_abs_gap": score_norm_gap,
+            "equal_no_cross_risk_abs_gap": no_cross_gap,
         }
         result["status"] = "PASS" if valid else "FAIL"
     else:

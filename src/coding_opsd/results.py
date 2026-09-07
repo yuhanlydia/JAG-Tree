@@ -906,11 +906,13 @@ _JAG_STRUCTURAL_CHECKS = {
             "covariance_reversal_valid",
             "equal_value_variance_abs_gap",
             "opposite_cross_term_abs_sum",
-            "opposite_covariance_vector_sum_norm",
+            "same_covariance_vector_difference_norm",
             "covariance_vector_nonzero",
             "opposite_nonzero_signs",
             "local_feature_difference_norm",
-            "accumulated_score_difference_norm",
+            "opposite_accumulated_score_vector_sum_norm",
+            "equal_accumulated_score_norm_abs_gap",
+            "equal_no_cross_risk_abs_gap",
         }
     ),
 }
