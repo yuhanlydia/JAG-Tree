@@ -1,0 +1,22 @@
+base_config: frozen_24gb.yaml
+allocator: uniform
+baseline_matrix:
+  controlled:
+    - {name: uniform, mode: controlled_ablation, paper_url: null, repository_url: null, upstream_commit: null, license_sha256: null, local_patch_notes: same bank and recursive loss}
+    - {name: entropy, mode: controlled_ablation, paper_url: null, repository_url: null, upstream_commit: null, license_sha256: null, local_patch_notes: entropy replaces joint risk}
+    - {name: value_variance, mode: controlled_ablation, paper_url: null, repository_url: null, upstream_commit: null, license_sha256: null, local_patch_notes: value variance only}
+    - {name: gradient_only, mode: controlled_ablation, paper_url: null, repository_url: null, upstream_commit: null, license_sha256: null, local_patch_notes: gradient trace only}
+    - {name: trace_score, mode: controlled_ablation, paper_url: null, repository_url: null, upstream_commit: null, license_sha256: null, local_patch_notes: supplied trace predictor}
+    - {name: jag_no_cross, mode: controlled_ablation, paper_url: null, repository_url: null, upstream_commit: null, license_sha256: null, local_patch_notes: value-gradient cross term removed}
+    - {name: jag_full, mode: controlled_ablation, paper_url: null, repository_url: null, upstream_commit: null, license_sha256: null, local_patch_notes: registered JAG implementation}
+    - {name: oracle_moments, mode: controlled_ablation, paper_url: null, repository_url: null, upstream_commit: null, license_sha256: null, local_patch_notes: full-information moments fault-free upper bound}
+  recipes:
+    - {name: base_checkpoint, mode: unavailable, executable: false, reason: no evaluation dispatch implemented}
+    - {name: flat_grpo, mode: unavailable, executable: false, reason: no local recipe implementation}
+    - {name: dapo, mode: unavailable, executable: false, reason: no local recipe implementation}
+    - {name: treepo, mode: unavailable, executable: false, reason: no installed or verified coding adapter}
+    - {name: treerl_eptree, mode: unavailable, executable: false, reason: no installed or verified coding adapter}
+    - {name: tree_grpo, mode: unavailable, executable: false, reason: no installed or verified coding adapter}
+    - {name: treerpo, mode: unavailable, executable: false, reason: no installed or verified coding adapter}
+    - {name: vip, mode: unavailable, executable: false, reason: no local recipe implementation}
+status: pinned_provenance_registry

@@ -1,0 +1,4 @@
+name: qwen25_coder_7b
+hf_id: Qwen/Qwen2.5-Coder-7B-Instruct
+revision: c03e6d358207e414f1eca0bb1891e29f1db0e242
+role: primary

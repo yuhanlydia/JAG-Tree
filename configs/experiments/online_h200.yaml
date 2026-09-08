@@ -1,0 +1,10 @@
+base_config: frozen_24gb.yaml
+stage: online
+hardware: h200_formal
+formal: false
+generation: {root_samples: 4, branch_depths: [256, 512, 768], children_per_branch: 3, max_new_tokens: 2048, temperature: 1.0, top_p: 1.0}
+budget: 8192
+training: {warmup_updates: 15, screening_updates: 200, formal_updates: 800, prompt_batch: 64, group_cap: 8, optimizer_epochs: 1, lora_rank: 32, lora_alpha: 64}
+seeds: [101, 202, 303]
+formal_activation: requires_container_digest_and_all_dataset_revision_shas
+status: preregistered_launch_template_not_formal_evidence

@@ -1,0 +1,7 @@
+benchmarks:
+  - {kind: livecodebench_v6, dataset_id: livecodebench/code_generation_lite, role: public_eval, revision: 0fe84c3912ea0c4d4a78037083943e8f0c4dd505}
+  - {kind: bigcodebench_full, dataset_id: bigcode/bigcodebench, role: public_eval, revision: b74c0d0bf70d2c0bc459be537895cca163007f1a}
+  - {kind: bigcodebench_hard, dataset_id: bigcode/bigcodebench, role: public_eval, revision: b74c0d0bf70d2c0bc459be537895cca163007f1a}
+  - {kind: humaneval_plus, dataset_id: evalplus/humanevalplus, role: public_eval, revision: d32357cf319e50e9c8d8dab5ea876c72b0fd321b}
+  - {kind: mbpp_plus, dataset_id: evalplus/mbppplus, role: public_eval, revision: b2d74c91837c3f2a20c1299ae98133cbe7cfa077}
+  - {kind: evaluator_held, role: locked_final, access: evaluator_only}

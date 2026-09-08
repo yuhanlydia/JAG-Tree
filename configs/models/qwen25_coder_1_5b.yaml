@@ -1,0 +1,4 @@
+name: qwen25_coder_1_5b
+hf_id: Qwen/Qwen2.5-Coder-1.5B-Instruct
+revision: d18ecad881a290f0c792f1c2b5dbee1820d4a424
+role: plumbing

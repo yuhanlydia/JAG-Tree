@@ -12,7 +12,7 @@ from unittest.mock import patch
 
 import numpy as np
 
-from coding_opsd.jag import (
+from jag_tree.phase0_api import (
     AllocationItem,
     FiniteMDP,
     JointMoments,
@@ -33,8 +33,8 @@ from coding_opsd.jag import (
     sample_balanced_tree,
     transport_weight,
 )
-from coding_opsd.jag.allocator import FrontierItem, greedy_frontier_plan
-from coding_opsd.jag.experiment import (
+from jag_tree.allocator import FrontierItem, greedy_frontier_plan
+from jag_tree.phase0 import (
     RidgePriority,
     _sample_budget_tree,
     build_calibration_record,
@@ -434,7 +434,7 @@ class SamplingAndExperimentTests(unittest.TestCase):
                 return 2.0
             return 1.0
 
-        with patch("coding_opsd.jag.experiment._node_priority", side_effect=risk):
+        with patch("jag_tree.phase0._node_priority", side_effect=risk):
             root, plan = _sample_budget_tree(mdp, 12, "joint_no_cross", ScriptedRNG())  # type: ignore[arg-type]
         self.assertEqual(sum(plan.values()), 12)
         depth_two = [event for event in root.planning_events if event["depth"] == 2 and event["kind"] == "marginal_increment"]

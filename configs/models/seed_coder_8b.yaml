@@ -1,0 +1,4 @@
+name: seed_coder_8b
+hf_id: ByteDance-Seed/Seed-Coder-8B-Instruct
+revision: 15d8bdf8c3dc1d68c4202455d60f5e992afca4de
+role: architecture_replication

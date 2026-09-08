@@ -1,0 +1,4 @@
+name: deepseek_coder_6_7b
+hf_id: deepseek-ai/deepseek-coder-6.7b-instruct
+revision: 60b85f5d38cbbd312461edd033ffcf5b586b4a81
+role: cross_family_stress

@@ -1,0 +1,13 @@
+base_config: smoke.yaml
+model: {name: qwen25_coder_7b, revision: c03e6d358207e414f1eca0bb1891e29f1db0e242}
+hardware: 16gb
+tasks:
+  kind: taco
+  role: frozen_audit
+  revision: 6e7429e9bcfb0e8d7aebfc719d98518f770b3985
+  split: train
+  field_map: {task_id: name, statement: question, starter_code: starter_code, tests: input_output, source: source, lineage_group: url}
+generation: {root_samples: 1, branch_depths: [256], children_per_branch: 2, max_new_tokens: 1024, temperature: 1.0, top_p: 1.0}
+budget: 4096
+seeds: [17]
+status: pilot_not_formal_evidence

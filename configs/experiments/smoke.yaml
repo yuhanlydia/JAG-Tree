@@ -1,0 +1,14 @@
+schema_version: 1
+stage: frozen
+formal: false
+model: {name: qwen25_coder_1_5b, revision: d18ecad881a290f0c792f1c2b5dbee1820d4a424}
+hardware: cpu
+datasets: []
+tasks: {kind: jsonl, path: tests/fixtures/tasks.jsonl, role: frozen_audit}
+allocator: jag_full
+arms: [uniform, entropy, value_variance, gradient_only, trace_score, jag_no_cross, jag_full, oracle_moments]
+budget: 64
+generation: {root_samples: 1, branch_depths: [], children_per_branch: 1, max_new_tokens: 32, temperature: 1.0, top_p: 1.0}
+limits: {timeout_seconds: 5, memory_mb: 256}
+seeds: [7]
+status: developer_smoke_not_formal_evidence

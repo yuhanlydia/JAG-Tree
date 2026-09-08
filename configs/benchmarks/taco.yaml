@@ -1,0 +1,12 @@
+kind: taco
+dataset_id: BAAI/TACO
+revision: 6e7429e9bcfb0e8d7aebfc719d98518f770b3985
+split: train
+field_map:
+  task_id: name
+  statement: question
+  starter_code: starter_code
+  tests: input_output
+  source: source
+  lineage_group: url
+split_policy: lineage_group_before_generation

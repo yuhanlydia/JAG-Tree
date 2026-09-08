@@ -1,0 +1,8 @@
+base_config: frozen_24gb.yaml
+ablations:
+  credit: [full_recursive, leaf_equal, sibling_only, no_descendant_gradient, no_shared_prefix_score, lagged_baseline, sibling_loo_baseline, unique_edge, duplicated_prefix_fault]
+  allocation: [uniform, entropy, value_variance, gradient_only, jag_no_cross, no_ancestor_transport, no_cost, root_only, prefix_only, jag_full]
+  predictor: [oracle, lagged_learned, shuffled, staleness_1, staleness_5, staleness_20, cross_fitting_on, cross_fitting_off, sketch_64, sketch_128, sketch_256, sketch_512, exact_gradient]
+  tree_reward: [segment_128, segment_256, segment_512, branch_cap_2, branch_cap_4, branch_cap_8, early_branching, middle_branching, late_branching, binary_reward, pass_fraction, shuffled_genealogy]
+fault_injections: [outcome_leaking_allocation, duplicated_prefix_weighting, shuffled_genealogy]
+status: controlled_ablation_matrix_not_formal_evidence
