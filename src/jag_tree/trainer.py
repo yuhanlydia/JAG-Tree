@@ -135,7 +135,7 @@ class QLoRAProfile:
 
 QLORA_PROFILES = {
     "16gb": QLoRAProfile(16, 32, 1024, 2, 1, True),
-    "24gb": QLoRAProfile(32, 64, 1536, 4, 20, True),
+    "24gb": QLoRAProfile(32, 64, 1024, 4, 20, False),
     "4x24gb": QLoRAProfile(32, 64, 2048, 8, 200, True),
     "h200_formal": QLoRAProfile(32, 64, 2048, 8, 800, False),
 }

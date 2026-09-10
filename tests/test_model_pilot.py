@@ -1,11 +1,114 @@
 from __future__ import annotations
 
+import sys
+from types import SimpleNamespace
+
 import numpy as np
 
 from jag_tree.models import TransformersPolicyBackend, chat_messages
 from jag_tree.rollout import GenerationRequest
 from jag_tree.schema import TreeNode
 from jag_tree.schema import TaskRecord
+
+
+def test_16gb_load_uses_transformers_quantization_config(monkeypatch) -> None:
+    class QuantizationConfig:
+        def __init__(self, **kwargs):
+            self.kwargs = kwargs
+
+    class AutoTokenizer:
+        @staticmethod
+        def from_pretrained(*args, **kwargs):
+            return object()
+
+    class AutoModel:
+        @staticmethod
+        def from_pretrained(*args, **kwargs):
+            assert "load_in_4bit" not in kwargs
+            assert kwargs["quantization_config"].kwargs == {"load_in_4bit": True}
+            return object()
+
+    monkeypatch.setitem(
+        sys.modules,
+        "transformers",
+        SimpleNamespace(
+            AutoModelForCausalLM=AutoModel,
+            AutoTokenizer=AutoTokenizer,
+            BitsAndBytesConfig=QuantizationConfig,
+        ),
+    )
+    backend = TransformersPolicyBackend("qwen25_coder_7b", "a" * 40, "16gb")
+    backend._load()
+
+
+def test_24gb_load_uses_bfloat16_without_quantization(monkeypatch) -> None:
+    import torch
+
+    class AutoTokenizer:
+        @staticmethod
+        def from_pretrained(*args, **kwargs):
+            return object()
+
+    class AutoModel:
+        @staticmethod
+        def from_pretrained(*args, **kwargs):
+            assert "quantization_config" not in kwargs
+            assert kwargs["torch_dtype"] is torch.bfloat16
+            return object()
+
+    monkeypatch.setitem(
+        sys.modules,
+        "transformers",
+        SimpleNamespace(
+            AutoModelForCausalLM=AutoModel,
+            AutoTokenizer=AutoTokenizer,
+            BitsAndBytesConfig=object,
+        ),
+    )
+    backend = TransformersPolicyBackend("qwen25_coder_7b", "a" * 40, "24gb")
+    backend._load()
+
+
+def test_24gb_lora_does_not_prepare_bfloat16_model_for_kbit(monkeypatch) -> None:
+    class Model:
+        def eval(self):
+            return self
+
+    class AutoTokenizer:
+        from_pretrained = staticmethod(lambda *args, **kwargs: object())
+
+    class AutoModel:
+        from_pretrained = staticmethod(lambda *args, **kwargs: Model())
+
+    class LoraConfig:
+        def __init__(self, **kwargs):
+            pass
+
+    def reject_kbit_prepare(model):
+        raise AssertionError("BF16 model was incorrectly prepared for k-bit training")
+
+    monkeypatch.setitem(
+        sys.modules,
+        "transformers",
+        SimpleNamespace(
+            AutoModelForCausalLM=AutoModel,
+            AutoTokenizer=AutoTokenizer,
+            BitsAndBytesConfig=object,
+        ),
+    )
+    monkeypatch.setitem(
+        sys.modules,
+        "peft",
+        SimpleNamespace(
+            LoraConfig=LoraConfig,
+            get_peft_model=lambda model, config: model,
+            prepare_model_for_kbit_training=reject_kbit_prepare,
+        ),
+    )
+    backend = TransformersPolicyBackend(
+        "qwen25_coder_7b", "a" * 40, "24gb", allow_pilot_predictor=True
+    )
+    backend._load()
 
 
 def test_pilot_predictor_is_outcome_blind_and_has_registered_sketch_width() -> None:

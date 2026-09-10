@@ -16,7 +16,13 @@ from jag_tree.rollout import FakePolicyBackend
 from jag_tree.sandbox import FakeSandbox
 from jag_tree.schema import TaskRecord, TreeNode
 from jag_tree.bank import TreeBank
-from jag_tree.trainer import TrainingBatch, recursive_training_targets, replay_edge_coefficients, run_experiment, train_one_update
+from jag_tree.trainer import QLORA_PROFILES, TrainingBatch, recursive_training_targets, replay_edge_coefficients, run_experiment, train_one_update
+
+
+def test_24gb_profile_keeps_bfloat16_base_weights() -> None:
+    assert QLORA_PROFILES["16gb"].quantized is True
+    assert QLORA_PROFILES["24gb"].quantized is False
+    assert QLORA_PROFILES["24gb"].max_response_tokens == 1024
 
 
 def test_jag_loss_matches_explicit_unique_edge_reinforce_gradient() -> None:

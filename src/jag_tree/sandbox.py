@@ -5,8 +5,6 @@ from __future__ import annotations
 from dataclasses import dataclass
 from enum import Enum
 import json
-import math
-import os
 from pathlib import Path
 import re
 import resource
@@ -110,19 +108,22 @@ class TrustedLocalSandbox:
     """
 
     @staticmethod
-    def _limit(memory_mb: int, timeout_seconds: float):
-        def apply() -> None:
-            resource.setrlimit(resource.RLIMIT_AS, (memory_mb * 1024 * 1024,) * 2)
-            cpu = max(1, int(math.ceil(timeout_seconds)))
-            resource.setrlimit(resource.RLIMIT_CPU, (cpu, cpu + 1))
-            resource.setrlimit(resource.RLIMIT_NPROC, (32, 32))
-            resource.setrlimit(resource.RLIMIT_FSIZE, (16 * 1024 * 1024,) * 2)
-            resource.setrlimit(resource.RLIMIT_CORE, (0, 0))
-            if os.geteuid() == 0:
-                os.setgroups([])
-                os.setgid(65534)
-                os.setuid(65534)
-        return apply
+    def _launcher() -> str:
+        return (
+            "import math, os, resource, sys\n"
+            "memory_mb, timeout_seconds, source = int(sys.argv[1]), float(sys.argv[2]), sys.argv[3]\n"
+            "resource.setrlimit(resource.RLIMIT_AS, (memory_mb * 1024 * 1024,) * 2)\n"
+            "cpu = max(1, int(math.ceil(timeout_seconds)))\n"
+            "resource.setrlimit(resource.RLIMIT_CPU, (cpu, cpu + 1))\n"
+            "resource.setrlimit(resource.RLIMIT_NPROC, (32, 32))\n"
+            "resource.setrlimit(resource.RLIMIT_FSIZE, (16 * 1024 * 1024,) * 2)\n"
+            "resource.setrlimit(resource.RLIMIT_CORE, (0, 0))\n"
+            "if os.geteuid() == 0:\n"
+            "    os.setgroups([])\n"
+            "    os.setgid(65534)\n"
+            "    os.setuid(65534)\n"
+            "os.execve('/usr/bin/python3', ['/usr/bin/python3', '-I', source], {'PATH': '/usr/bin:/bin', 'PYTHONIOENCODING': 'utf-8'})\n"
+        )
 
     @staticmethod
     def _run(source: Path, limits: SandboxLimits, *, stdin: str = "") -> tuple[int, str, str, float] | None:
@@ -130,14 +131,13 @@ class TrustedLocalSandbox:
         before = resource.getrusage(resource.RUSAGE_CHILDREN)
         try:
             completed = subprocess.run(
-                ["/usr/bin/python3", "-I", str(source)],
+                ["/usr/bin/python3", "-I", "-c", TrustedLocalSandbox._launcher(), str(limits.memory_mb), str(limits.timeout_seconds), str(source)],
                 input=stdin,
                 text=True,
                 capture_output=True,
                 cwd=source.parent,
                 env={"PATH": "/usr/bin:/bin", "PYTHONIOENCODING": "utf-8"},
                 timeout=limits.timeout_seconds,
-                preexec_fn=TrustedLocalSandbox._limit(limits.memory_mb, limits.timeout_seconds),
             )
         except subprocess.TimeoutExpired:
             return None
@@ -178,6 +178,42 @@ class TrustedLocalSandbox:
                     if all(stdout.split() != str(item).split() for item in expected_values):
                         return SandboxResult(SandboxOutcome.WRONG, cpu_total)
                 return SandboxResult(SandboxOutcome.PASS, cpu_total)
+
+            if parsed is not None and parsed.get("fn_name"):
+                inputs, outputs = parsed["inputs"], parsed["outputs"]
+                if len(inputs) != len(outputs):
+                    return SandboxResult(SandboxOutcome.INFRASTRUCTURE_FAILURE, stderr="test input/output lengths differ")
+                harness = root / "harness.py"
+                harness.write_text(
+                    "namespace = {}\n"
+                    f"exec({source_text!r}, namespace, namespace)\n"
+                    f"function = namespace.get({str(parsed['fn_name'])!r})\n"
+                    "if not callable(function):\n"
+                    "    raise SystemExit(11)\n"
+                    f"cases = {list(zip(inputs, outputs))!r}\n"
+                    "for arguments, expected in cases:\n"
+                    "    if isinstance(arguments, list):\n"
+                    "        actual = function(*arguments)\n"
+                    "    elif isinstance(arguments, dict):\n"
+                    "        actual = function(**arguments)\n"
+                    "    else:\n"
+                    "        actual = function(arguments)\n"
+                    "    if actual != expected and not (isinstance(expected, list) and len(expected) == 1 and actual == expected[0]):\n"
+                    "        raise SystemExit(10)\n",
+                    encoding="utf-8",
+                )
+                harness.chmod(0o644)
+                result = self._run(harness, limits)
+                if result is None:
+                    return SandboxResult(SandboxOutcome.TIMEOUT)
+                returncode, stdout, stderr, cpu = result
+                if returncode == 0:
+                    return SandboxResult(SandboxOutcome.PASS, cpu)
+                if returncode == 10:
+                    return SandboxResult(SandboxOutcome.WRONG, cpu)
+                if returncode in {-signal.SIGXCPU, -signal.SIGKILL}:
+                    return SandboxResult(SandboxOutcome.TIMEOUT, cpu)
+                return SandboxResult(SandboxOutcome.EXCEPTION, cpu, stderr=stderr[-4000:])
 
             harness = root / "harness.py"
             tests = "\n".join(task.tests)

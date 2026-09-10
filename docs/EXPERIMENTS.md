@@ -68,7 +68,7 @@ The checked-in smoke and pilot configs produce `INCOMPLETE`. Process exit status
 |---|---|---|
 | CPU | registry, schema, fake backends, exact finite tests | CI only |
 | 16GB | 1.5B smoke; 7B NF4 frozen generation, group 2, 1,024 tokens, at most one update | pilot |
-| 24GB | 7B NF4 QLoRA rank 16/32, microbatch 1, sequential group 4, 1,536 tokens, at most 20 updates | pilot/frozen audit |
+| 24GB | 7B BF16 LoRA rank 32, microbatch 1, sequential group 4, 1,024 response tokens, at most 20 updates | pilot/frozen audit |
 | 4×24GB | separated rollout/training workers | screening |
 | H200 | BF16 LoRA rank 32/alpha 64, group 8, 2,048 tokens | formal after sealing |
 

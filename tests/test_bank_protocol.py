@@ -2,7 +2,9 @@ from __future__ import annotations
 
 from dataclasses import replace
 import json
+import mmap
 from pathlib import Path
+from types import SimpleNamespace
 
 import numpy as np
 import pytest
@@ -145,3 +147,43 @@ def test_trusted_local_sandbox_executes_taco_stdio_without_exposing_expected_out
     result = TrustedLocalSandbox().run(task, code, SandboxLimits(timeout_seconds=1, memory_mb=128))
     assert result.outcome is SandboxOutcome.PASS
     assert "5" not in result.stdout and "6" not in result.stdout
+
+
+def test_trusted_local_sandbox_executes_taco_function_tests() -> None:
+    tests = json.dumps(
+        {
+            "fn_name": "nth_even",
+            "inputs": [[1], [2], [100]],
+            "outputs": [[0], [2], [198]],
+        }
+    )
+    task = replace(_task(), tests=(tests,))
+    limits = SandboxLimits(timeout_seconds=1, memory_mb=128)
+    sandbox = TrustedLocalSandbox()
+    assert sandbox.run(task, "def nth_even(n): return 2 * (n - 1)", limits).outcome is SandboxOutcome.PASS
+    assert sandbox.run(task, "def nth_even(n): return 2 * n", limits).outcome is SandboxOutcome.WRONG
+
+
+def test_trusted_local_sandbox_launches_under_large_parent_address_space() -> None:
+    inherited = mmap.mmap(-1, 256 * 1024 * 1024)
+    try:
+        result = TrustedLocalSandbox().run(
+            _task(),
+            "def add(a, b): return a + b",
+            SandboxLimits(timeout_seconds=1, memory_mb=128),
+        )
+    finally:
+        inherited.close()
+    assert result.outcome is SandboxOutcome.PASS
+
+
+def test_trusted_local_sandbox_does_not_use_preexec_fn(monkeypatch, tmp_path: Path) -> None:
+    source = tmp_path / "candidate.py"
+    source.write_text("pass\n", encoding="utf-8")
+
+    def fake_run(*args, **kwargs):
+        assert "preexec_fn" not in kwargs
+        return SimpleNamespace(returncode=0, stdout="", stderr="")
+
+    monkeypatch.setattr("jag_tree.sandbox.subprocess.run", fake_run)
+    assert TrustedLocalSandbox._run(source, SandboxLimits(1, 128)) is not None

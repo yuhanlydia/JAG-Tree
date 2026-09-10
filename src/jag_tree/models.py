@@ -21,7 +21,7 @@ def model_plan(name: str, revision: str, hardware: str) -> dict[str, object]:
     if hardware not in HARDWARE_PROFILES:
         raise ValueError(f"unknown hardware profile: {hardware}")
     model = MODELS[name]
-    return {"name": name, "hf_id": model.hf_id, "role": model.role, "revision": revision, "hardware": hardware, "quantization": "nf4" if hardware in {"16gb", "24gb"} else "none"}
+    return {"name": name, "hf_id": model.hf_id, "role": model.role, "revision": revision, "hardware": hardware, "quantization": "nf4" if hardware == "16gb" else "none"}
 
 
 def chat_messages(task: TaskRecord, model_name: str) -> list[dict[str, str]]:
@@ -60,12 +60,12 @@ class TransformersPolicyBackend:
             return self._model, self._tokenizer
         try:
             import torch
-            from transformers import AutoModelForCausalLM, AutoTokenizer
+            from transformers import AutoModelForCausalLM, AutoTokenizer, BitsAndBytesConfig
         except ImportError as exc:
             raise RuntimeError("Transformers generation requires the optional models extra") from exc
         kwargs: dict[str, Any] = {"revision": self.revision, "device_map": "auto"}
-        if self.hardware in {"16gb", "24gb"}:
-            kwargs["load_in_4bit"] = True
+        if self.hardware == "16gb":
+            kwargs["quantization_config"] = BitsAndBytesConfig(load_in_4bit=True)
         else:
             kwargs["torch_dtype"] = torch.bfloat16
         self._tokenizer = AutoTokenizer.from_pretrained(self.plan["hf_id"], revision=self.revision)
@@ -75,7 +75,8 @@ class TransformersPolicyBackend:
                 from peft import LoraConfig, get_peft_model, prepare_model_for_kbit_training
             except ImportError as exc:
                 raise RuntimeError("pilot score gradients require PEFT") from exc
-            self._model = prepare_model_for_kbit_training(self._model)
+            if self.hardware == "16gb":
+                self._model = prepare_model_for_kbit_training(self._model)
             self._model = get_peft_model(
                 self._model,
                 LoraConfig(

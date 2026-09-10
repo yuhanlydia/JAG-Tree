@@ -1,4 +1,5 @@
 base_config: frozen_16gb.yaml
+hardware: 24gb
 tasks:
   kind: jsonl
   path: /root/jag-data/taco-pilot-short-contest.jsonl
