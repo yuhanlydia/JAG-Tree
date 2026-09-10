@@ -10,7 +10,7 @@ import pytest
 from jag_tree.bank import BankError, TreeBank, verify_bank
 from jag_tree.ledger import RunLedger
 from jag_tree.manifest import ManifestError, build_manifest
-from jag_tree.sandbox import ContainerSandbox, FakeSandbox, SandboxLimits, SandboxOutcome, SubprocessSandbox, container_command
+from jag_tree.sandbox import ContainerSandbox, FakeSandbox, SandboxLimits, SandboxOutcome, SubprocessSandbox, TrustedLocalSandbox, container_command
 from jag_tree.schema import TaskRecord, TreeNode, code_fingerprint, test_fingerprint as fingerprint_tests
 
 
@@ -126,3 +126,22 @@ def test_container_command_disables_network_and_applies_resource_limits() -> Non
     assert container.run(task, "import os; os._exit(0)", limits).outcome is SandboxOutcome.INFRASTRUCTURE_FAILURE
     with pytest.raises(ValueError, match="digest"):
         ContainerSandbox("python:latest")
+
+
+def test_trusted_local_sandbox_executes_assertion_tests_and_classifies_failures() -> None:
+    limits = SandboxLimits(timeout_seconds=1, memory_mb=128)
+    task = _task()
+    sandbox = TrustedLocalSandbox()
+    assert sandbox.run(task, "def add(a, b): return a + b", limits).outcome is SandboxOutcome.PASS
+    assert sandbox.run(task, "def add(a, b): return a - b", limits).outcome is SandboxOutcome.WRONG
+    assert sandbox.run(task, "raise RuntimeError('boom')", limits).outcome is SandboxOutcome.EXCEPTION
+    assert sandbox.run(task, "while True: pass", limits).outcome is SandboxOutcome.TIMEOUT
+
+
+def test_trusted_local_sandbox_executes_taco_stdio_without_exposing_expected_outputs() -> None:
+    tests = json.dumps({"inputs": ["2 3\n", "10 -4\n"], "outputs": ["5\n", "6\n"]})
+    task = replace(_task(), tests=(tests,))
+    code = "a, b = map(int, input().split())\nprint(a + b)"
+    result = TrustedLocalSandbox().run(task, code, SandboxLimits(timeout_seconds=1, memory_mb=128))
+    assert result.outcome is SandboxOutcome.PASS
+    assert "5" not in result.stdout and "6" not in result.stdout

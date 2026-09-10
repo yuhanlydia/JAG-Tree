@@ -27,7 +27,11 @@ def model_plan(name: str, revision: str, hardware: str) -> dict[str, object]:
 def chat_messages(task: TaskRecord, model_name: str) -> list[dict[str, str]]:
     if model_name not in MODELS:
         raise ValueError(f"unknown model: {model_name}")
-    system = "You are an expert competitive programmer. Return only a complete Python solution."
+    system = (
+        "You are an expert competitive programmer. Return only a complete Python solution. "
+        "The first token of your response must begin the Python program. No explanation, "
+        "analysis, Markdown fence, or prose is allowed."
+    )
     if model_name == "seed_coder_8b":
         system = "Solve the programming task. Output only the complete code."
     elif model_name == "deepseek_coder_6_7b":
@@ -38,16 +42,18 @@ def chat_messages(task: TaskRecord, model_name: str) -> list[dict[str, str]]:
 class TransformersPolicyBackend:
     """Sequential generation backend; optional dependencies load on first use."""
 
-    def __init__(self, model_name: str, revision: str, hardware: str = "24gb", calibration_path: str | Path | None = None) -> None:
+    def __init__(self, model_name: str, revision: str, hardware: str = "24gb", calibration_path: str | Path | None = None, *, allow_pilot_predictor: bool = False) -> None:
         self.plan = model_plan(model_name, revision, hardware)
         self.model_name = model_name
         self.revision = revision
         self.hardware = hardware
         self.calibration_path = Path(calibration_path) if calibration_path is not None else None
+        self.allow_pilot_predictor = bool(allow_pilot_predictor)
         self._model: Any = None
         self._tokenizer: Any = None
         self._optimizer: Any = None
         self._training_updates = 0
+        self._generation_stats: list[tuple[float, float]] = []
 
     def _load(self) -> tuple[Any, Any]:
         if self._model is not None:
@@ -64,16 +70,50 @@ class TransformersPolicyBackend:
             kwargs["torch_dtype"] = torch.bfloat16
         self._tokenizer = AutoTokenizer.from_pretrained(self.plan["hf_id"], revision=self.revision)
         self._model = AutoModelForCausalLM.from_pretrained(self.plan["hf_id"], **kwargs)
+        if self.allow_pilot_predictor:
+            try:
+                from peft import LoraConfig, get_peft_model, prepare_model_for_kbit_training
+            except ImportError as exc:
+                raise RuntimeError("pilot score gradients require PEFT") from exc
+            self._model = prepare_model_for_kbit_training(self._model)
+            self._model = get_peft_model(
+                self._model,
+                LoraConfig(
+                    r=2,
+                    lora_alpha=4,
+                    lora_dropout=0.0,
+                    bias="none",
+                    task_type="CAUSAL_LM",
+                    target_modules=["q_proj"],
+                ),
+            )
+            self._model.eval()
         return self._model, self._tokenizer
 
     def _generate_text(self, prompt: str, seed: int, request: GenerationRequest) -> tuple[str, tuple[int, ...]]:
         import torch
         model, tokenizer = self._load()
-        generator = torch.Generator(device=model.device).manual_seed(int(seed))
         encoded = tokenizer(prompt, return_tensors="pt").to(model.device)
-        with torch.inference_mode():
-            output = model.generate(**encoded, do_sample=True, temperature=request.temperature, top_p=request.top_p, max_new_tokens=request.max_new_tokens, generator=generator, pad_token_id=tokenizer.eos_token_id)
-        continuation = output[0, encoded["input_ids"].shape[1]:]
+        devices = [model.device] if getattr(model.device, "type", None) == "cuda" else []
+        with torch.random.fork_rng(devices=devices), torch.inference_mode():
+            torch.manual_seed(int(seed))
+            if devices:
+                torch.cuda.manual_seed_all(int(seed))
+            output = model.generate(**encoded, do_sample=True, temperature=request.temperature, top_p=request.top_p, max_new_tokens=request.max_new_tokens, pad_token_id=tokenizer.eos_token_id, return_dict_in_generate=True, output_scores=True)
+        sequences = output.sequences if hasattr(output, "sequences") else output
+        continuation = sequences[0, encoded["input_ids"].shape[1]:]
+        edge_logprob = 0.0
+        edge_entropy = 0.0
+        scores = tuple(getattr(output, "scores", ()))
+        for token, logits in zip(continuation, scores):
+            logp = torch.log_softmax(logits[0].float(), dim=-1)
+            probability = logp.exp()
+            edge_logprob += float(logp[int(token)].item())
+            finite = torch.isfinite(logp)
+            edge_entropy += float((-(probability[finite] * logp[finite])).sum().item())
+        if scores:
+            edge_entropy /= len(scores)
+        self._generation_stats.append((edge_logprob, edge_entropy))
         return tokenizer.decode(continuation, skip_special_tokens=True), tuple(int(token) for token in continuation.detach().cpu().tolist())
 
     def generate_tree(self, task: TaskRecord, seed: int, request: GenerationRequest | None = None) -> tuple[TreeNode, ...]:
@@ -87,7 +127,13 @@ class TransformersPolicyBackend:
             _, tokens = self._generate_text(conditional_prompt, edge_seed, replace(request, max_new_tokens=count, branch_depths=()))
             return tokens
 
-        return build_genealogy(task, prompt, self.revision, f"{self.model_name}-chat-v1", seed, request, sample_edge, lambda tokens: tokenizer.decode(tokens, skip_special_tokens=True), lambda edge: bool(edge and edge[-1] == tokenizer.eos_token_id))
+        self._generation_stats = []
+        nodes = build_genealogy(task, prompt, self.revision, f"{self.model_name}-chat-v1", seed, request, sample_edge, lambda tokens: tokenizer.decode(tokens, skip_special_tokens=True), lambda edge: bool(edge and edge[-1] == tokenizer.eos_token_id))
+        stats = iter(self._generation_stats)
+        return tuple(
+            node if node.parent_id is None else replace(node, edge_logprob=(stat := next(stats))[0], edge_entropy=stat[1])
+            for node in nodes
+        )
 
     def score_tree(self, task: TaskRecord, nodes: tuple[TreeNode, ...]) -> dict[str, Any]:
         """Sketch actual sampled-edge log-probability gradients."""
@@ -118,7 +164,9 @@ class TransformersPolicyBackend:
         if not registered:
             raise ValueError("policy has no registered differentiable parameters")
         preferred = [name for name, _ in registered if "lora" in name.lower()]
-        names = tuple(preferred or [registered[-1][0]])
+        # One fixed late adapter tensor keeps the pilot sketch auditable and small
+        # enough for a 16GB worker. Formal configs use their sealed block list.
+        names = tuple(preferred[-1:] if self.allow_pilot_predictor and preferred else preferred or [registered[-1][0]])
         result = score_sketch(model, examples, GradientSpec(names, dimension=256, seed=0))
         return {node_id: result.sketch[index] for index, node_id in enumerate(edge_ids)}
 
@@ -127,6 +175,21 @@ class TransformersPolicyBackend:
 
         from .audit import FrozenMomentPredictor, MomentPrediction
 
+        if self.calibration_path is None and self.allow_pilot_predictor:
+            import numpy as np
+
+            predictions = {
+                node.node_id: MomentPrediction(
+                    1.0,
+                    1.0,
+                    np.zeros(256, dtype=np.float64),
+                    max(0.0, float(node.edge_entropy)),
+                    1.0,
+                )
+                for node in nodes
+                if node.parent_id is not None
+            }
+            return FrozenMomentPredictor("pilot:outcome-blind-structural-v1", predictions)
         del nodes
         if self.calibration_path is None or not self.calibration_path.is_file():
             raise ValueError("transformers audit requires a sealed calibration predictor artifact")

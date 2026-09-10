@@ -1,0 +1,22 @@
+base_config: frozen_16gb.yaml
+tasks:
+  kind: jsonl
+  path: /root/jag-data/taco-pilot-short-contest.jsonl
+  role: frozen_audit
+  field_map:
+    task_id: task_id
+    statement: statement
+    starter_code: starter_code
+    tests: tests
+    source: source
+    lineage_group: lineage_group
+generation:
+  root_samples: 2
+  branch_depths: []
+  children_per_branch: 1
+  max_new_tokens: 192
+  temperature: 1.0
+  top_p: 1.0
+budget: 384
+arms: [uniform, entropy, jag_full, oracle_moments]
+status: local_real_7b_pilot_not_formal_evidence

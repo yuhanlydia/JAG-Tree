@@ -1,0 +1,24 @@
+base_config: ../experiments/frozen_16gb.yaml
+tasks:
+  kind: jsonl
+  path: /root/jag-data/taco-screen16.jsonl
+  role: frozen_audit
+  field_map:
+    task_id: task_id
+    statement: statement
+    starter_code: starter_code
+    tests: tests
+    source: source
+    lineage_group: lineage_group
+generation:
+  root_samples: 4
+  branch_depths: [64, 128]
+  children_per_branch: 2
+  max_new_tokens: 192
+  temperature: 1.0
+  top_p: 1.0
+budget: 4096
+arms: [uniform, entropy, value_variance, gradient_only, jag_full, oracle_moments]
+timeout_seconds: 3
+memory_mb: 512
+status: local_real_7b_screen16_not_formal_evidence
