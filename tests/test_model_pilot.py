@@ -4,6 +4,7 @@ import sys
 from types import SimpleNamespace
 
 import numpy as np
+import pytest
 
 from jag_tree.models import TransformersPolicyBackend, chat_messages
 from jag_tree.rollout import GenerationRequest
@@ -12,6 +13,7 @@ from jag_tree.schema import TaskRecord
 
 
 def test_16gb_load_uses_transformers_quantization_config(monkeypatch) -> None:
+    fake_torch = SimpleNamespace(bfloat16=object())
     class QuantizationConfig:
         def __init__(self, **kwargs):
             self.kwargs = kwargs
@@ -37,12 +39,13 @@ def test_16gb_load_uses_transformers_quantization_config(monkeypatch) -> None:
             BitsAndBytesConfig=QuantizationConfig,
         ),
     )
+    monkeypatch.setitem(sys.modules, "torch", fake_torch)
     backend = TransformersPolicyBackend("qwen25_coder_7b", "a" * 40, "16gb")
     backend._load()
 
 
 def test_24gb_load_uses_bfloat16_without_quantization(monkeypatch) -> None:
-    import torch
+    fake_torch = SimpleNamespace(bfloat16=object())
 
     class AutoTokenizer:
         @staticmethod
@@ -53,7 +56,7 @@ def test_24gb_load_uses_bfloat16_without_quantization(monkeypatch) -> None:
         @staticmethod
         def from_pretrained(*args, **kwargs):
             assert "quantization_config" not in kwargs
-            assert kwargs["torch_dtype"] is torch.bfloat16
+            assert kwargs["torch_dtype"] is fake_torch.bfloat16
             return object()
 
     monkeypatch.setitem(
@@ -65,11 +68,13 @@ def test_24gb_load_uses_bfloat16_without_quantization(monkeypatch) -> None:
             BitsAndBytesConfig=object,
         ),
     )
+    monkeypatch.setitem(sys.modules, "torch", fake_torch)
     backend = TransformersPolicyBackend("qwen25_coder_7b", "a" * 40, "24gb")
     backend._load()
 
 
 def test_24gb_lora_does_not_prepare_bfloat16_model_for_kbit(monkeypatch) -> None:
+    fake_torch = SimpleNamespace(bfloat16=object())
     class Model:
         def eval(self):
             return self
@@ -96,6 +101,7 @@ def test_24gb_lora_does_not_prepare_bfloat16_model_for_kbit(monkeypatch) -> None
             BitsAndBytesConfig=object,
         ),
     )
+    monkeypatch.setitem(sys.modules, "torch", fake_torch)
     monkeypatch.setitem(
         sys.modules,
         "peft",
@@ -145,7 +151,7 @@ def test_pilot_predictor_requires_explicit_opt_in() -> None:
 
 
 def test_generation_seeds_torch_without_passing_unsupported_generator_kwarg() -> None:
-    import torch
+    torch = pytest.importorskip("torch")
 
     class Batch(dict):
         def to(self, device):
@@ -174,7 +180,7 @@ def test_generation_seeds_torch_without_passing_unsupported_generator_kwarg() ->
 
 
 def test_generation_records_sampled_edge_logprob_and_entropy() -> None:
-    import torch
+    torch = pytest.importorskip("torch")
 
     class Batch(dict):
         def to(self, device):
@@ -208,7 +214,7 @@ def test_generation_records_sampled_edge_logprob_and_entropy() -> None:
 
 
 def test_generation_entropy_ignores_top_p_negative_infinity_logits() -> None:
-    import torch
+    torch = pytest.importorskip("torch")
 
     class Batch(dict):
         def to(self, device):
