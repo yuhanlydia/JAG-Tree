@@ -90,6 +90,11 @@ def score_sketch(model: Any, batch: Any, spec: GradientSpec) -> ScoreSketch:
                 sketch += chunk @ signs
                 if spec.keep_exact and not sketches:
                     current_projection.append(signs)
+        # Do not retain the autograd graph from one edge while the next edge
+        # starts its forward pass.  A score tree has many edges; keeping these
+        # local references alive makes VRAM grow until the 16GB pilot OOMs even
+        # with gradient checkpointing enabled.
+        del output, score, gradients, gradient
         if spec.keep_exact:
             rows.append(np.concatenate(exact_parts))
             if not sketches:
