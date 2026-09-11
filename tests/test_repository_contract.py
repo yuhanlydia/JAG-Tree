@@ -66,7 +66,7 @@ def test_prepare_writes_create_once_canonical_plan(tmp_path: Path) -> None:
 
 def test_readme_has_status_guard_and_no_empirical_superiority_claim() -> None:
     text = (ROOT / "README.md").read_text().lower()
-    assert "no 7b result" in text
+    assert "no formal 7b result" in text
     assert "not evidence" in text
     forbidden = re.compile(r"jag-tree\s+(?:outperforms|beats|improves|achieves state-of-the-art)")
     assert forbidden.search(text) is None

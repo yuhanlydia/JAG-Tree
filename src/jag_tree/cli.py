@@ -5,6 +5,7 @@ from __future__ import annotations
 import argparse
 import importlib.util
 import json
+import logging
 import platform
 from pathlib import Path
 import sys
@@ -29,7 +30,8 @@ def _parser() -> argparse.ArgumentParser:
     run.add_argument("--seed", type=int, required=True)
     run.add_argument("--dry-run", action="store_true")
     run.add_argument("--backend", choices=("transformers", "fake"), default="transformers")
-    run.add_argument("--sandbox", choices=("container", "subprocess", "fake"), default="container")
+    run.add_argument("--sandbox", choices=("container", "subprocess", "fake", "trusted-local"), default="container")
+    run.add_argument("--allow-pilot-predictor", action="store_true", help="use the outcome-blind structural predictor and small LoRA sketch for non-formal pilots")
     run.add_argument("--container-image")
     verify = sub.add_parser("verify", help="verify immutable result artifacts")
     verify.add_argument("path")
@@ -59,7 +61,10 @@ def main(argv: Sequence[str] | None = None) -> int:
             else:
                 print(payload)
             return 0
+        if config.data.get("formal") and (args.sandbox == "trusted-local" or args.allow_pilot_predictor):
+            raise ConfigError("local sandbox and pilot predictor are unavailable for formal experiments")
         from .trainer import run_experiment
+        logging.basicConfig(level=logging.INFO, format="%(asctime)s %(name)s: %(message)s")
         backend = sandbox = None
         if not args.dry_run:
             data = config.data
@@ -70,10 +75,13 @@ def main(argv: Sequence[str] | None = None) -> int:
             else:
                 from .models import TransformersPolicyBackend
                 predictor_path = data.get("gradient_audit", {}).get("predictor_path")
-                backend = TransformersPolicyBackend(str(model["name"]), str(model["revision"]), str(data.get("hardware", "24gb")), predictor_path)
+                backend = TransformersPolicyBackend(str(model["name"]), str(model["revision"]), str(data.get("hardware", "24gb")), predictor_path, allow_pilot_predictor=args.allow_pilot_predictor)
             if args.sandbox == "fake":
                 from .sandbox import FakeSandbox
                 sandbox = FakeSandbox()
+            elif args.sandbox == "trusted-local":
+                from .sandbox import TrustedLocalSandbox
+                sandbox = TrustedLocalSandbox()
             elif args.sandbox == "subprocess":
                 from .sandbox import SubprocessSandbox
                 task_ids = frozenset(str(item) for item in data.get("trusted_fixture_task_ids", ()))

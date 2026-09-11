@@ -5,6 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass, replace
 from hashlib import sha256
 import json
+import logging
 from pathlib import Path
 from typing import Any, Mapping
 
@@ -64,7 +65,8 @@ def run_frozen_audit(config: ExperimentConfig | Mapping[str, Any], backend: Poli
         request = GenerationRequest(int(request_data.get("root_samples", 1)), tuple(request_data.get("branch_depths", ())), int(request_data.get("children_per_branch", 1)), int(request_data.get("max_new_tokens", 256)), float(request_data.get("temperature", 1.0)), float(request_data.get("top_p", 1.0)))
         nodes = []
         execution_ledger = RunLedger()
-        for task in tasks:
+        for task_index, task in enumerate(tasks, 1):
+            logging.getLogger(__name__).info("generating task %d/%d: %s", task_index, len(tasks), task.task_id)
             generated = backend.generate_tree(task, int(data["seed"]), request)
             for generated_node in generated:
                 if generated_node.parent_id is not None:
@@ -81,7 +83,8 @@ def run_frozen_audit(config: ExperimentConfig | Mapping[str, Any], backend: Poli
                 nodes.append(node)
         score_arrays: dict[str, np.ndarray] = {}
         by_task = {task.task_id: task for task in tasks}
-        for task_id in sorted(by_task):
+        for task_index, task_id in enumerate(sorted(by_task), 1):
+            logging.getLogger(__name__).info("scoring gradients %d/%d: %s", task_index, len(by_task), task_id)
             task_nodes = tuple(node for node in nodes if node.task_id == task_id)
             score_arrays.update({key: np.asarray(value, dtype=np.float64) for key, value in backend.score_tree(by_task[task_id], task_nodes).items()})
         required_scores = {node.node_id for node in nodes if node.parent_id is not None}

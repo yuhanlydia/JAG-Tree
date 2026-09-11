@@ -36,7 +36,23 @@ jag-tree verify runs/smoke/run-<config-sha-prefix>-seed7
 
 The model-backed launchers require optional dependencies, local/container execution permission, and the pinned data/model revisions:
 
-Generated-code execution is deliberately unavailable in this CPU release: both local subprocess and OCI backends return an infrastructure failure without running candidate code because no trusted external test-completion verifier is shipped. Only `FakeSandbox` may return PASS, and it is restricted to deterministic developer fixtures.
+The `subprocess` and OCI backends return an infrastructure failure because no external test-completion verifier is shipped. Dedicated pilot workers can explicitly select `trusted-local`, which runs candidates as an unprivileged process with resource limits. It is unavailable for formal runs.
+
+For the outcome-blind structural pilot predictor and the small rank-2 LoRA gradient sketch:
+
+```bash
+PYTHON=.venv/bin/python scripts/run_frozen_7b.sh runs/screen16 17 trusted-local configs/pilots/jag_screen16.yaml
+```
+
+This uses `--sandbox trusted-local --allow-pilot-predictor`. The predictor has constant value and gradient variances and zero cross covariance, so `uniform`, `value_variance`, and `gradient_only` coincide and this pilot cannot establish a learned joint-moment advantage. The sketch covers one late adapter tensor, not the formal multi-block audit. The default container behavior remains fail-closed.
+
+The screen JSONL is local input. To reproduce the September 2026 worker subset, download `ALL/train-00000-of-00009.parquet` from `BAAI/TACO` at revision `6e7429e9bcfb0e8d7aebfc719d98518f770b3985`, then run:
+
+```bash
+.venv/bin/python scripts/prepare_taco_screen.py /root/jag-data/taco-train-00000.parquet /root/jag-data/taco-screen16.jsonl
+```
+
+The script checks the source SHA-256, selects tasks before generation, preserves full tests, and writes a create-once provenance sidecar. It requires PyArrow from the dataset dependencies.
 
 ```bash
 scripts/run_frozen_7b.sh runs/frozen-24gb 17 python@sha256:<64-hex-digest> configs/experiments/frozen_24gb.yaml

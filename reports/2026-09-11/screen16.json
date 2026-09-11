@@ -1,0 +1,173 @@
+{
+  "status": "INCOMPLETE",
+  "interpretation": "Completed real 7B pilot; conditional on one 16-task bank and one late rank-2 LoRA sketch; no formal or training claim.",
+  "bank_manifest_sha256": "e7a2541fbd0a0aae2d23f362725884a196d2e8a8aa3e9904447a70426ff37cdf",
+  "task_count": 16,
+  "edges": 244,
+  "leaves": 154,
+  "passed_leaves": 38,
+  "solved_tasks": 6,
+  "unique_generated_tokens": 11495,
+  "target_reward": 0.27734375,
+  "dimension": 256,
+  "arms": {
+    "entropy": {
+      "exact_conditional_gradient_mse": 0.00013487387832737148,
+      "draw_count": 21,
+      "validation_mc_mse": 0.00013692994732133386,
+      "validation_mc_se": 1.0812272516791821e-05,
+      "sampled_gradient_mse": 5.7017908101697375e-05,
+      "sampled_cosine": 0.7095931472598638,
+      "replay_sampling_tokens": 2295,
+      "exact_mse_ratio_to_uniform": 10.011526442221475
+    },
+    "gradient_only": {
+      "exact_conditional_gradient_mse": 1.3471859571640313e-05,
+      "draw_count": 21,
+      "validation_mc_mse": 1.3298802124496172e-05,
+      "validation_mc_se": 1.044902171244851e-07,
+      "sampled_gradient_mse": 1.5025990015932441e-05,
+      "sampled_cosine": 0.5711144283683329,
+      "replay_sampling_tokens": 2174,
+      "exact_mse_ratio_to_uniform": 1.0
+    },
+    "jag_full": {
+      "exact_conditional_gradient_mse": 1.5741611026059377e-05,
+      "draw_count": 21,
+      "validation_mc_mse": 1.60293970946987e-05,
+      "validation_mc_se": 1.2164318243495277e-07,
+      "sampled_gradient_mse": 1.7011351133804955e-05,
+      "sampled_cosine": 0.6301210304234837,
+      "replay_sampling_tokens": 2750,
+      "exact_mse_ratio_to_uniform": 1.1684809318527287
+    },
+    "oracle_moments": {
+      "exact_conditional_gradient_mse": 2.7429585024540303e-06,
+      "draw_count": 21,
+      "validation_mc_mse": 2.7386347374963465e-06,
+      "validation_mc_se": 1.2990611474986037e-08,
+      "sampled_gradient_mse": 2.745963712218874e-06,
+      "sampled_cosine": 0.8619486887149622,
+      "replay_sampling_tokens": 2355,
+      "exact_mse_ratio_to_uniform": 0.20360652424170508
+    },
+    "uniform": {
+      "exact_conditional_gradient_mse": 1.3471859571640313e-05,
+      "draw_count": 21,
+      "validation_mc_mse": 1.3298802124496172e-05,
+      "validation_mc_se": 1.044902171244851e-07,
+      "sampled_gradient_mse": 1.5025990015932441e-05,
+      "sampled_cosine": 0.5711144283683329,
+      "replay_sampling_tokens": 2174,
+      "exact_mse_ratio_to_uniform": 1.0
+    },
+    "value_variance": {
+      "exact_conditional_gradient_mse": 1.3471859571640313e-05,
+      "draw_count": 21,
+      "validation_mc_mse": 1.3298802124496172e-05,
+      "validation_mc_se": 1.044902171244851e-07,
+      "sampled_gradient_mse": 1.5025990015932441e-05,
+      "sampled_cosine": 0.5711144283683329,
+      "replay_sampling_tokens": 2174,
+      "exact_mse_ratio_to_uniform": 1.0
+    }
+  },
+  "tasks": [
+    {
+      "task_id": "https://codeforces.com/problemset/problem/1068/B",
+      "leaves": 8,
+      "passed": 0,
+      "at_response_cap": 0
+    },
+    {
+      "task_id": "https://codeforces.com/problemset/problem/1117/A",
+      "leaves": 16,
+      "passed": 0,
+      "at_response_cap": 5
+    },
+    {
+      "task_id": "https://codeforces.com/problemset/problem/1177/A",
+      "leaves": 10,
+      "passed": 2,
+      "at_response_cap": 4
+    },
+    {
+      "task_id": "https://codeforces.com/problemset/problem/1213/C",
+      "leaves": 10,
+      "passed": 0,
+      "at_response_cap": 0
+    },
+    {
+      "task_id": "https://codeforces.com/problemset/problem/1514/A",
+      "leaves": 16,
+      "passed": 0,
+      "at_response_cap": 15
+    },
+    {
+      "task_id": "https://codeforces.com/problemset/problem/1562/A",
+      "leaves": 10,
+      "passed": 0,
+      "at_response_cap": 0
+    },
+    {
+      "task_id": "https://codeforces.com/problemset/problem/239/A",
+      "leaves": 7,
+      "passed": 0,
+      "at_response_cap": 0
+    },
+    {
+      "task_id": "https://codeforces.com/problemset/problem/320/A",
+      "leaves": 7,
+      "passed": 0,
+      "at_response_cap": 0
+    },
+    {
+      "task_id": "https://codeforces.com/problemset/problem/462/A",
+      "leaves": 16,
+      "passed": 13,
+      "at_response_cap": 0
+    },
+    {
+      "task_id": "https://codeforces.com/problemset/problem/52/A",
+      "leaves": 6,
+      "passed": 6,
+      "at_response_cap": 0
+    },
+    {
+      "task_id": "https://codeforces.com/problemset/problem/577/A",
+      "leaves": 6,
+      "passed": 6,
+      "at_response_cap": 0
+    },
+    {
+      "task_id": "https://codeforces.com/problemset/problem/664/A",
+      "leaves": 4,
+      "passed": 0,
+      "at_response_cap": 0
+    },
+    {
+      "task_id": "https://codeforces.com/problemset/problem/877/A",
+      "leaves": 8,
+      "passed": 0,
+      "at_response_cap": 0
+    },
+    {
+      "task_id": "https://codeforces.com/problemset/problem/888/A",
+      "leaves": 9,
+      "passed": 7,
+      "at_response_cap": 0
+    },
+    {
+      "task_id": "https://codeforces.com/problemset/problem/892/B",
+      "leaves": 8,
+      "passed": 4,
+      "at_response_cap": 0
+    },
+    {
+      "task_id": "https://codeforces.com/problemset/problem/900/B",
+      "leaves": 13,
+      "passed": 0,
+      "at_response_cap": 0
+    }
+  ]
+}

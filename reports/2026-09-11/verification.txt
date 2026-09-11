@@ -1,0 +1,12 @@
+2026-09-11 UTC
+.venv/bin/python -m pytest -q
+119 passed, 17 subtests passed in 8.49s
+
+git diff --check
+exit 0
+
+verify_artifacts and verify_bank:
+screen16: verified, scores (244, 256), 244 nonzero rows, all finite
+screen16-1024: verified, scores (70, 256), 70 nonzero rows, all finite
+
+Each of six arms in each bank: replay proposal probabilities agree with independent reconstruction; exact conditional MSE agrees with 8192 repeated simulations within six Monte Carlo standard errors.
