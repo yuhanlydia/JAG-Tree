@@ -6,14 +6,14 @@ from types import SimpleNamespace
 import numpy as np
 import pytest
 
-from jag_tree.models import TransformersPolicyBackend, chat_messages
+from jag_tree.models import TransformersPolicyBackend, _bounded_gradient_sequence, chat_messages
 from jag_tree.rollout import GenerationRequest
 from jag_tree.schema import TreeNode
 from jag_tree.schema import TaskRecord
 
 
 def test_16gb_load_uses_transformers_quantization_config(monkeypatch) -> None:
-    fake_torch = SimpleNamespace(bfloat16=object())
+    fake_torch = SimpleNamespace(bfloat16=object(), float16=object())
     class QuantizationConfig:
         def __init__(self, **kwargs):
             self.kwargs = kwargs
@@ -27,7 +27,12 @@ def test_16gb_load_uses_transformers_quantization_config(monkeypatch) -> None:
         @staticmethod
         def from_pretrained(*args, **kwargs):
             assert "load_in_4bit" not in kwargs
-            assert kwargs["quantization_config"].kwargs == {"load_in_4bit": True}
+            assert kwargs["quantization_config"].kwargs == {
+                "load_in_4bit": True,
+                "bnb_4bit_compute_dtype": fake_torch.float16,
+                "bnb_4bit_use_double_quant": True,
+                "bnb_4bit_quant_type": "nf4",
+            }
             return object()
 
     monkeypatch.setitem(
@@ -118,7 +123,7 @@ def test_24gb_lora_does_not_prepare_bfloat16_model_for_kbit(monkeypatch) -> None
 
 
 def test_16gb_pilot_enables_memory_safe_gradient_checkpointing(monkeypatch) -> None:
-    fake_torch = SimpleNamespace(bfloat16=object())
+    fake_torch = SimpleNamespace(bfloat16=object(), float16=object())
 
     class Model:
         def __init__(self):
@@ -173,6 +178,13 @@ def test_16gb_pilot_enables_memory_safe_gradient_checkpointing(monkeypatch) -> N
     assert model.config.use_cache is False
     assert model.checkpoint_kwargs == {"gradient_checkpointing_kwargs": {"use_reentrant": False}}
     assert model.input_grads_enabled is True
+
+
+def test_gradient_scoring_bounds_context_but_keeps_edge() -> None:
+    sequence, edge_start = _bounded_gradient_sequence((1, 2, 3, 4), (5, 6, 7), (8, 9, 10), 6)
+    assert sequence == (5, 6, 7, 8, 9, 10)
+    assert edge_start == 3
+    assert sequence[edge_start:] == (8, 9, 10)
 
 
 def test_pilot_predictor_is_outcome_blind_and_has_registered_sketch_width() -> None:

@@ -15,6 +15,23 @@ from .rollout import GenerationRequest, build_genealogy
 from .schema import TaskRecord, TreeNode
 
 
+def _bounded_gradient_sequence(
+    prompt_tokens: tuple[int, ...],
+    prefix_tokens: tuple[int, ...],
+    edge_tokens: tuple[int, ...],
+    limit: int | None,
+) -> tuple[tuple[int, ...], int]:
+    """Keep the scored edge and a bounded causal context for low-memory pilots."""
+
+    context = prompt_tokens + prefix_tokens
+    if limit is not None and limit < 1:
+        raise ValueError("gradient context limit must be positive")
+    if limit is not None and len(context) + len(edge_tokens) > limit:
+        keep = max(1, limit - len(edge_tokens))
+        context = context[-keep:]
+    return context + edge_tokens, len(context)
+
+
 def model_plan(name: str, revision: str, hardware: str) -> dict[str, object]:
     if name not in MODELS:
         raise ValueError(f"unknown model: {name}")
@@ -65,7 +82,12 @@ class TransformersPolicyBackend:
             raise RuntimeError("Transformers generation requires the optional models extra") from exc
         kwargs: dict[str, Any] = {"revision": self.revision, "device_map": "auto"}
         if self.hardware == "16gb":
-            kwargs["quantization_config"] = BitsAndBytesConfig(load_in_4bit=True)
+            kwargs["quantization_config"] = BitsAndBytesConfig(
+                load_in_4bit=True,
+                bnb_4bit_compute_dtype=torch.float16,
+                bnb_4bit_use_double_quant=True,
+                bnb_4bit_quant_type="nf4",
+            )
         else:
             kwargs["torch_dtype"] = torch.bfloat16
         self._tokenizer = AutoTokenizer.from_pretrained(self.plan["hf_id"], revision=self.revision)
@@ -177,8 +199,14 @@ class TransformersPolicyBackend:
             ancestors.reverse()
             prefix = tuple(token for edge in ancestors[:-1] for token in edge.token_ids)
             prompt_ids = tuple(tokenizer(root.text, add_special_tokens=False)["input_ids"])
-            input_ids = torch.tensor([prompt_ids + prefix + node.token_ids], device=model.device, dtype=torch.long)
-            examples.append(ScoreExample({"input_ids": input_ids}, len(prompt_ids) + len(prefix), len(node.token_ids)))
+            sequence, edge_start = _bounded_gradient_sequence(
+                prompt_ids,
+                prefix,
+                tuple(node.token_ids),
+                512 if self.hardware == "16gb" else None,
+            )
+            input_ids = torch.tensor([sequence], device=model.device, dtype=torch.long)
+            examples.append(ScoreExample({"input_ids": input_ids}, edge_start, len(node.token_ids)))
             edge_ids.append(node.node_id)
         registered = [(name, parameter) for name, parameter in model.named_parameters() if parameter.requires_grad]
         if not registered:
