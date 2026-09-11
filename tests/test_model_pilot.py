@@ -117,6 +117,64 @@ def test_24gb_lora_does_not_prepare_bfloat16_model_for_kbit(monkeypatch) -> None
     backend._load()
 
 
+def test_16gb_pilot_enables_memory_safe_gradient_checkpointing(monkeypatch) -> None:
+    fake_torch = SimpleNamespace(bfloat16=object())
+
+    class Model:
+        def __init__(self):
+            self.config = SimpleNamespace(use_cache=True)
+            self.checkpoint_kwargs = None
+            self.input_grads_enabled = False
+
+        def gradient_checkpointing_enable(self, **kwargs):
+            self.checkpoint_kwargs = kwargs
+
+        def enable_input_require_grads(self):
+            self.input_grads_enabled = True
+
+        def eval(self):
+            return self
+
+    model = Model()
+
+    class AutoTokenizer:
+        from_pretrained = staticmethod(lambda *args, **kwargs: object())
+
+    class AutoModel:
+        from_pretrained = staticmethod(lambda *args, **kwargs: model)
+
+    class LoraConfig:
+        def __init__(self, **kwargs):
+            pass
+
+    monkeypatch.setitem(
+        sys.modules,
+        "transformers",
+        SimpleNamespace(
+            AutoModelForCausalLM=AutoModel,
+            AutoTokenizer=AutoTokenizer,
+            BitsAndBytesConfig=lambda **kwargs: object(),
+        ),
+    )
+    monkeypatch.setitem(sys.modules, "torch", fake_torch)
+    monkeypatch.setitem(
+        sys.modules,
+        "peft",
+        SimpleNamespace(
+            LoraConfig=LoraConfig,
+            get_peft_model=lambda loaded, config: loaded,
+            prepare_model_for_kbit_training=lambda loaded: loaded,
+        ),
+    )
+    backend = TransformersPolicyBackend(
+        "qwen25_coder_7b", "a" * 40, "16gb", allow_pilot_predictor=True
+    )
+    backend._load()
+    assert model.config.use_cache is False
+    assert model.checkpoint_kwargs == {"gradient_checkpointing_kwargs": {"use_reentrant": False}}
+    assert model.input_grads_enabled is True
+
+
 def test_pilot_predictor_is_outcome_blind_and_has_registered_sketch_width() -> None:
     backend = TransformersPolicyBackend(
         "qwen25_coder_7b",

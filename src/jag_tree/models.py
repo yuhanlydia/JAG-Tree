@@ -88,6 +88,25 @@ class TransformersPolicyBackend:
                     target_modules=["q_proj"],
                 ),
             )
+            # The gradient-scored pilot performs a real backward pass through a
+            # 7B model.  On a 16GB card, retaining every transformer activation
+            # for the long code prompts exhausts VRAM even though the weights
+            # themselves fit in 4-bit form.  Non-reentrant checkpointing keeps
+            # the registered LoRA gradients exact while recomputing activations
+            # during the backward pass.
+            if self.hardware == "16gb":
+                config = getattr(self._model, "config", None)
+                if config is not None:
+                    config.use_cache = False
+                enable_checkpointing = getattr(self._model, "gradient_checkpointing_enable", None)
+                if callable(enable_checkpointing):
+                    try:
+                        enable_checkpointing(gradient_checkpointing_kwargs={"use_reentrant": False})
+                    except TypeError:
+                        enable_checkpointing()
+                enable_input_grads = getattr(self._model, "enable_input_require_grads", None)
+                if callable(enable_input_grads):
+                    enable_input_grads()
             self._model.eval()
         return self._model, self._tokenizer
 
