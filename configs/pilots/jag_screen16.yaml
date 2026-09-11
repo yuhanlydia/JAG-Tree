@@ -1,5 +1,5 @@
 base_config: ../experiments/frozen_16gb.yaml
-hardware: 24gb
+hardware: 16gb
 tasks:
   kind: jsonl
   path: /root/jag-data/taco-screen16.jsonl
