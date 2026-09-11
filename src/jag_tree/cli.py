@@ -29,7 +29,7 @@ def _parser() -> argparse.ArgumentParser:
     run.add_argument("--seed", type=int, required=True)
     run.add_argument("--dry-run", action="store_true")
     run.add_argument("--backend", choices=("transformers", "fake"), default="transformers")
-    run.add_argument("--sandbox", choices=("container", "subprocess", "fake"), default="container")
+    run.add_argument("--sandbox", choices=("container", "subprocess", "trusted_local", "fake"), default="container")
     run.add_argument("--container-image")
     verify = sub.add_parser("verify", help="verify immutable result artifacts")
     verify.add_argument("path")
@@ -70,7 +70,10 @@ def main(argv: Sequence[str] | None = None) -> int:
             else:
                 from .models import TransformersPolicyBackend
                 predictor_path = data.get("gradient_audit", {}).get("predictor_path")
-                backend = TransformersPolicyBackend(str(model["name"]), str(model["revision"]), str(data.get("hardware", "24gb")), predictor_path)
+                backend = TransformersPolicyBackend(
+                    str(model["name"]), str(model["revision"]), str(data.get("hardware", "24gb")), predictor_path,
+                    allow_pilot_predictor=args.sandbox == "trusted_local",
+                )
             if args.sandbox == "fake":
                 from .sandbox import FakeSandbox
                 sandbox = FakeSandbox()
@@ -78,6 +81,9 @@ def main(argv: Sequence[str] | None = None) -> int:
                 from .sandbox import SubprocessSandbox
                 task_ids = frozenset(str(item) for item in data.get("trusted_fixture_task_ids", ()))
                 sandbox = SubprocessSandbox(trusted_task_ids=task_ids)
+            elif args.sandbox == "trusted_local":
+                from .sandbox import TrustedLocalSandbox
+                sandbox = TrustedLocalSandbox()
             else:
                 from .sandbox import ContainerSandbox
                 if not args.container_image:
